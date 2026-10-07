@@ -3,7 +3,7 @@ import type { Step, Story, Timeline } from './types.js';
 import type { StoryCache } from './cache.js';
 
 /** Bump when the prompt or the Story shape changes, so cached stories are regenerated. */
-export const STORY_VERSION = 1;
+export const STORY_VERSION = 2;
 
 /** Limits on what goes to the model. Roughly 4 characters per token, so about 30k tokens. */
 export const LIMITS = {
@@ -25,7 +25,7 @@ Rules:
 - Explain what changed and why, from the evidence only. If the evidence gives no reason for a change, say "No reason recorded." and cite the commit. Never guess a motive. A revert whose message only names the reverted commit has no recorded reason.
 - Every note and every verdict reason cites at least one id exactly as written in the evidence, such as "commit:b35fa73" or "pr:49659". When a commit names a pull request, review or issue, cite that too. Never invent ids.
 - Write one note per commit, in the same order as the evidence, using its short hash in "commit". Commits marked [reduced] get a short note from their subject alone.
-- Notes are at most 2 sentences, plain words, no markdown.
+- Notes are at most 2 sentences, plain words, no markdown. Ids go in "citations", not in the text.
 - "summary" is one sentence on how these lines got to where they are today and what that means for someone about to change them. Do not just describe what the code does.
 - The verdict level is low, medium or high risk to change. Raise it for security fixes, reverts, a change made and then undone, tests added alongside a change, or code labelled as taken from another library.
 - Give 3 to 5 verdict reasons, most important first, each citing the specific commits it rests on. Name concrete events (a fix that was reverted, a behaviour that was loosened), not general statements.
@@ -168,6 +168,13 @@ function evidenceIds(step: Step): string[] {
   return ids;
 }
 
+/** The PR that merged a commit: from GitHub when known, else the "(#123)" GitHub puts after a squash-merged subject. */
+function mergedPr(step: Step): string | undefined {
+  if (step.pr) return `pr:${step.pr.number}`;
+  const m = /\(#(\d+)\)\s*$/.exec(step.commit.message.split('\n')[0] ?? '');
+  return m ? `pr:${m[1]}` : undefined;
+}
+
 /** Keeps only the hunk lines of a diff (no file headers), at most `max` lines. */
 export function trimDiff(diff: string, max: number): string {
   const lines = diff.split('\n').filter((l) => !/^(diff --git|index |--- |\+\+\+ )/.test(l));
@@ -219,7 +226,11 @@ export function parseStory(text: string, timeline: Timeline, prompt: StoryPrompt
     const sha = fullSha(step.commit.replace(/^commit:/i, ''));
     if (!sha || notes.has(sha) || !step.note.trim()) continue;
     const { citations, flagged } = check(step.citations);
-    notes.set(sha, { commit: sha, note: step.note.trim(), citations, ...(flagged && { flagged }) });
+    // A note about a commit also cites the PR its message names, when the model left it out.
+    const own = timeline.steps.find((s) => s.commit.sha === sha)!;
+    const pr = flagged ? undefined : mergedPr(own);
+    if (pr && !citations.includes(pr)) citations.push(pr);
+    notes.set(sha, { commit: sha, note: prose(step.note), citations, ...(flagged && { flagged }) });
   }
 
   return {
@@ -229,7 +240,7 @@ export function parseStory(text: string, timeline: Timeline, prompt: StoryPrompt
       level: out.verdict.level,
       reasons: out.verdict.reasons.slice(0, 5).map((r) => {
         const { citations, flagged } = check(r.citations);
-        return { text: r.text.trim(), citations, ...(flagged && { flagged }) };
+        return { text: prose(r.text), citations, ...(flagged && { flagged }) };
       }),
       checks: out.verdict.checks.map((c) => c.trim()).filter(Boolean).slice(0, 5),
     },
@@ -374,6 +385,14 @@ export async function writeStory(timeline: Timeline, options: WriteStoryOptions)
   const story = parseStory(text, timeline, prompt, options.client.model);
   await options.cache?.set(key, story);
   return story;
+}
+
+/** Turns ids the model wrote into the text anyway into what a reader expects: "commit:b35fa73" → "b35fa73", "pr:49659" → "#49659". */
+function prose(text: string): string {
+  return text
+    .trim()
+    .replace(/\bcommit:([0-9a-f]{7,40})\b/gi, (_, sha: string) => short(sha))
+    .replace(/\b(?:pr|issue):(\d+)\b/gi, '#$1');
 }
 
 function short(sha: string): string {

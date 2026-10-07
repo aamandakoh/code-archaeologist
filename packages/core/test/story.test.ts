@@ -35,7 +35,7 @@ const answer = (overrides: object = {}) =>
     verdict: {
       level: 'HIGH',
       reasons: [
-        { text: 'A security fix was reverted.', citations: ['fc9b2d64e32b', '#49659'] },
+        { text: 'A security fix (commit:e96936a57fe) was reverted, see pr:49659.', citations: ['fc9b2d64e32b', '#49659'] },
         { text: 'Invented.', citations: ['commit:deadbee'] },
       ],
       checks: ['Read the revert discussion first.'],
@@ -86,7 +86,7 @@ describe('parseStory', () => {
       note: 'Only javascript: is blocked now.',
       citations: ['commit:b35fa73', 'pr:49659'],
     });
-    expect(story.verdict.reasons[0]).toEqual({ text: 'A security fix was reverted.', citations: ['commit:fc9b2d6', 'pr:49659'] });
+    expect(story.verdict.reasons[0]).toEqual({ text: 'A security fix (e96936a) was reverted, see #49659.', citations: ['commit:fc9b2d6', 'pr:49659'] });
     expect(story.model).toBe('test-model');
   });
 
@@ -94,6 +94,12 @@ describe('parseStory', () => {
     const story = parseStory(answer(), timeline, prompt, 'm');
     expect(story.steps[1]).toMatchObject({ note: 'Made up.', citations: [], flagged: true });
     expect(story.verdict.reasons[1]).toMatchObject({ citations: [], flagged: true });
+  });
+
+  test('adds the PR a commit message names to that commit\'s note', () => {
+    const steps = [{ commit: 'fc5c34d', note: 'Allowed sms: URLs.', citations: ['commit:fc5c34d'] }];
+    const story = parseStory(answer({ steps }), timeline, prompt, 'm');
+    expect(story.steps[0]!.citations).toEqual(['commit:fc5c34d', 'pr:31463']);
   });
 
   test('accepts JSON wrapped in a code fence', () => {
