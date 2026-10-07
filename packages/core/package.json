@@ -1,0 +1,12 @@
+{
+  "name": "@code-archaeologist/core",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Evidence engine: traces how a line range evolved. Never imports vscode.",
+  "type": "module",
+  "main": "src/index.ts",
+  "types": "src/index.ts",
+  "scripts": {
+    "test": "vitest run"
+  }
+}

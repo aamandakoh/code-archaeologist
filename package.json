@@ -1,0 +1,20 @@
+{
+  "name": "code-archaeologist",
+  "private": true,
+  "description": "Select code, see how it evolved commit by commit, and why.",
+  "license": "MIT",
+  "engines": { "node": ">=22" },
+  "workspaces": ["packages/core", "packages/cli", "packages/extension"],
+  "scripts": {
+    "build": "npm run build --workspaces --if-present",
+    "typecheck": "tsc -p packages/core && tsc -p packages/cli && tsc -p packages/extension && tsc -p packages/extension/webview",
+    "test": "npm test --workspace packages/core",
+    "trace": "node packages/cli/dist/cli.js trace"
+  },
+  "devDependencies": {
+    "@types/node": "^22.0.0",
+    "esbuild": "^0.28.2",
+    "typescript": "^5.9.3",
+    "vitest": "^5.0.3"
+  }
+}

@@ -1,0 +1,58 @@
+{
+  "name": "code-archaeologist",
+  "displayName": "Code Archaeologist",
+  "description": "Select code and see how it evolved commit by commit, and why.",
+  "version": "0.1.0",
+  "private": true,
+  "publisher": "aamandakoh",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/aamandakoh/code-archaeologist"
+  },
+  "engines": {
+    "vscode": "^1.90.0"
+  },
+  "categories": [
+    "Other",
+    "Visualization"
+  ],
+  "main": "./dist/extension.js",
+  "activationEvents": [],
+  "contributes": {
+    "commands": [
+      {
+        "command": "codeArchaeologist.trace",
+        "title": "Why is this here?",
+        "category": "Code Archaeologist"
+      }
+    ],
+    "menus": {
+      "editor/context": [
+        {
+          "command": "codeArchaeologist.trace",
+          "when": "resourceScheme == file",
+          "group": "navigation@100"
+        }
+      ],
+      "commandPalette": [
+        {
+          "command": "codeArchaeologist.trace",
+          "when": "editorIsOpen"
+        }
+      ]
+    }
+  },
+  "scripts": {
+    "build": "node build.mjs",
+    "watch": "node build.mjs --watch",
+    "package": "npm run build && vsce package --no-dependencies"
+  },
+  "dependencies": {
+    "@code-archaeologist/core": "0.1.0"
+  },
+  "devDependencies": {
+    "@types/vscode": "~1.90.0",
+    "@vscode/vsce": "^4.0.0"
+  }
+}

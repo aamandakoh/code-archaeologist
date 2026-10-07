@@ -1,0 +1,664 @@
+ARCH-COMMIT
+fc9b2d64e32bf48d9782e0a679060f36cc9a1dc2
+2026-09-30T00:15:20+00:00
+Andrew Scott
+Revert "fix(core): block dangerous data: and vbscript: URLs in URL sanitizer"
+
+This reverts commit e96936a57fe4f07f8155e5a500cec5adeb6341be.
+
+
+diff --git a/packages/core/src/sanitization/url_sanitizer.ts b/packages/core/src/sanitization/url_sanitizer.ts
+--- a/packages/core/src/sanitization/url_sanitizer.ts
++++ b/packages/core/src/sanitization/url_sanitizer.ts
+@@ -47,12 +38,11 @@
+-const SAFE_URL_PATTERN =
+-  /^(?!javascript:)(?!vbscript:)(?!data:(?!image\/|video\/|audio\/))(?:[a-z0-9+.-]+:|[^&:\/?#]*(?:[\/?#]|$))/i;
++const SAFE_URL_PATTERN = /^(?!javascript:)(?:[a-z0-9+.-]+:|[^&:\/?#]*(?:[\/?#]|$))/i;
+ export function _sanitizeUrl(url: string): string {
+   url = String(url);
+   if (url.match(SAFE_URL_PATTERN)) return url;
+ 
+   if (typeof ngDevMode === 'undefined' || ngDevMode) {
+     console.warn(`WARNING: sanitizing unsafe URL value ${url} (see ${XSS_SECURITY_URL})`);
+   }
+ 
+   return 'unsafe:' + url;
+ }
+ARCH-COMMIT
+bab72b9f5d8a6c9162d10b051093ce1e8dc817a2
+2026-09-30T00:15:16+00:00
+Andrew Scott
+Revert "fix(core): extend data: URL allowlist for non-executable MIME types"
+
+This reverts commit 2b89a3ba5a96359544e307b07e8c04c77119fffa.
+
+
+diff --git a/packages/core/src/sanitization/url_sanitizer.ts b/packages/core/src/sanitization/url_sanitizer.ts
+--- a/packages/core/src/sanitization/url_sanitizer.ts
++++ b/packages/core/src/sanitization/url_sanitizer.ts
+@@ -49,12 +47,12 @@
+ const SAFE_URL_PATTERN =
+-  /^(?!javascript:)(?!vbscript:)(?!data:(?!image\/|video\/|audio\/|font\/|application\/octet-stream(?=[;,])|application\/pdf(?=[;,])|application\/json(?=[;,])|text\/plain(?=[;,])|text\/csv(?=[;,])))(?:[a-z0-9+.-]+:|[^&:\/?#]*(?:[\/?#]|$))/i;
++  /^(?!javascript:)(?!vbscript:)(?!data:(?!image\/|video\/|audio\/))(?:[a-z0-9+.-]+:|[^&:\/?#]*(?:[\/?#]|$))/i;
+ export function _sanitizeUrl(url: string): string {
+   url = String(url);
+   if (url.match(SAFE_URL_PATTERN)) return url;
+ 
+   if (typeof ngDevMode === 'undefined' || ngDevMode) {
+     console.warn(`WARNING: sanitizing unsafe URL value ${url} (see ${XSS_SECURITY_URL})`);
+   }
+ 
+   return 'unsafe:' + url;
+ }
+ARCH-COMMIT
+2b89a3ba5a96359544e307b07e8c04c77119fffa
+2026-03-25T14:12:00+00:00
+Kevin Zhao
+fix(core): extend data: URL allowlist for non-executable MIME types
+
+The previous allowlist only permitted image/*, video/*, and audio/*,
+which broke internal tests using data:application/octet-stream.
+
+Extend the allowlist to include common non-executable MIME types:
+font/*, application/octet-stream, application/pdf, application/json,
+text/plain, and text/csv. All executable types (text/html, text/javascript,
+application/javascript, etc.) remain blocked.
+
+This maintains the allowlist architecture (safe by default) while
+covering legitimate data: URL use cases.
+
+
+diff --git a/packages/core/src/sanitization/url_sanitizer.ts b/packages/core/src/sanitization/url_sanitizer.ts
+--- a/packages/core/src/sanitization/url_sanitizer.ts
++++ b/packages/core/src/sanitization/url_sanitizer.ts
+@@ -47,12 +49,12 @@
+ const SAFE_URL_PATTERN =
+-  /^(?!javascript:)(?!vbscript:)(?!data:(?!image\/|video\/|audio\/))(?:[a-z0-9+.-]+:|[^&:\/?#]*(?:[\/?#]|$))/i;
++  /^(?!javascript:)(?!vbscript:)(?!data:(?!image\/|video\/|audio\/|font\/|application\/octet-stream(?=[;,])|application\/pdf(?=[;,])|application\/json(?=[;,])|text\/plain(?=[;,])|text\/csv(?=[;,])))(?:[a-z0-9+.-]+:|[^&:\/?#]*(?:[\/?#]|$))/i;
+ export function _sanitizeUrl(url: string): string {
+   url = String(url);
+   if (url.match(SAFE_URL_PATTERN)) return url;
+ 
+   if (typeof ngDevMode === 'undefined' || ngDevMode) {
+     console.warn(`WARNING: sanitizing unsafe URL value ${url} (see ${XSS_SECURITY_URL})`);
+   }
+ 
+   return 'unsafe:' + url;
+ }
+ARCH-COMMIT
+e96936a57fe4f07f8155e5a500cec5adeb6341be
+2026-03-20T14:31:36+00:00
+Kevin Zhao
+fix(core): block dangerous data: and vbscript: URLs in URL sanitizer
+
+The URL sanitizer previously only blocked `javascript:` URLs via a
+negative lookahead. This left other potentially dangerous URL schemes
+unblocked, including `data:text/html` (which can execute scripts in
+some environments), `vbscript:` (script execution in legacy IE), and
+bare `data:` URIs with no explicit media type.
+
+This change extends the URL sanitizer to also block:
+- `vbscript:` URLs
+- `data:` URLs except for safe media subtypes (image/*, video/*, audio/*)
+
+Safe media data: URIs (e.g. `data:image/png;base64,...`) continue to be
+allowed as they are commonly used for inline images and do not execute
+scripts when loaded via `<img src>`.
+
+This resolves a longstanding TODO in html_sanitizer.ts to special-case
+`data:image/` URIs, which has been open since the sanitizer was first
+written.
+
+Applications that rely on non-media `data:` URLs (e.g. `data:text/plain`
+or `data:application/pdf`) in sanitized contexts should use
+`bypassSecurityTrustUrl()` to explicitly mark them as trusted.
+
+
+diff --git a/packages/core/src/sanitization/url_sanitizer.ts b/packages/core/src/sanitization/url_sanitizer.ts
+--- a/packages/core/src/sanitization/url_sanitizer.ts
++++ b/packages/core/src/sanitization/url_sanitizer.ts
+@@ -38,11 +47,12 @@
+-const SAFE_URL_PATTERN = /^(?!javascript:)(?:[a-z0-9+.-]+:|[^&:\/?#]*(?:[\/?#]|$))/i;
++const SAFE_URL_PATTERN =
++  /^(?!javascript:)(?!vbscript:)(?!data:(?!image\/|video\/|audio\/))(?:[a-z0-9+.-]+:|[^&:\/?#]*(?:[\/?#]|$))/i;
+ export function _sanitizeUrl(url: string): string {
+   url = String(url);
+   if (url.match(SAFE_URL_PATTERN)) return url;
+ 
+   if (typeof ngDevMode === 'undefined' || ngDevMode) {
+     console.warn(`WARNING: sanitizing unsafe URL value ${url} (see ${XSS_SECURITY_URL})`);
+   }
+ 
+   return 'unsafe:' + url;
+ }
+ARCH-COMMIT
+b35fa739687a357108edaa0a57dcd033ecfcb9f2
+2023-03-31T10:09:28+00:00
+Guillaume Weghsteen
+feat(core): change the URL sanitization to only block javascript: URLs (#49659)
+
+In modern browsers, the 'javascript:' URL scheme is the only scheme that
+can execute JavaScript when passed in a navigation URL context (e.g.
+`a.href` value). Validate URL shemes to only contain characters allowed
+in the URL specification ([a-zA-Z-+.]), and that are not javascript
+(case insensitive). This is not a breaking change. The URL sanitization
+is loosen.
+
+PR Close #49659
+
+
+diff --git a/packages/core/src/sanitization/url_sanitizer.ts b/packages/core/src/sanitization/url_sanitizer.ts
+--- a/packages/core/src/sanitization/url_sanitizer.ts
++++ b/packages/core/src/sanitization/url_sanitizer.ts
+@@ -37,12 +38,11 @@
+-const SAFE_URL_PATTERN = /^(?:(?:https?|mailto|data|ftp|tel|file|sms):|[^&:/?#]*(?:[/?#]|$))/gi;
+-
++const SAFE_URL_PATTERN = /^(?!javascript:)(?:[a-z0-9+.-]+:|[^&:\/?#]*(?:[\/?#]|$))/i;
+ export function _sanitizeUrl(url: string): string {
+   url = String(url);
+   if (url.match(SAFE_URL_PATTERN)) return url;
+ 
+   if (typeof ngDevMode === 'undefined' || ngDevMode) {
+     console.warn(`WARNING: sanitizing unsafe URL value ${url} (see ${XSS_SECURITY_URL})`);
+   }
+ 
+   return 'unsafe:' + url;
+ }
+ARCH-COMMIT
+414b1b2d5ffe8eac33749bf472af7eafcf248dba
+2022-11-16T11:39:16+00:00
+Bjarki
+docs: extract XSS security doc URL into a constant (#48082)
+
+We plan to change the link in google3 to point to google3-specific
+documentation. Replacing a single constant will make for a smaller and
+more maintainable patch.
+
+PR Close #48082
+
+
+diff --git a/packages/core/src/sanitization/url_sanitizer.ts b/packages/core/src/sanitization/url_sanitizer.ts
+--- a/packages/core/src/sanitization/url_sanitizer.ts
++++ b/packages/core/src/sanitization/url_sanitizer.ts
+@@ -36,12 +37,12 @@
+ const SAFE_URL_PATTERN = /^(?:(?:https?|mailto|data|ftp|tel|file|sms):|[^&:/?#]*(?:[/?#]|$))/gi;
+ 
+ export function _sanitizeUrl(url: string): string {
+   url = String(url);
+   if (url.match(SAFE_URL_PATTERN)) return url;
+ 
+   if (typeof ngDevMode === 'undefined' || ngDevMode) {
+-    console.warn(`WARNING: sanitizing unsafe URL value ${url} (see https://g.co/ng/security#xss)`);
++    console.warn(`WARNING: sanitizing unsafe URL value ${url} (see ${XSS_SECURITY_URL})`);
+   }
+ 
+   return 'unsafe:' + url;
+ }
+ARCH-COMMIT
+a360309f31afa97c4268a94fbd6a5108362a7182
+2022-04-25T14:08:11-07:00
+Jeremy Elbourn
+refactor(core): remove obsolete `data:` url validation (#45860)
+
+Validation for `data:` urls is obsolete now that modern browsers ([Firefox as of v57+](https://blog.mozilla.org/security/2017/10/04/treating-data-urls-unique-origins-firefox-57)) don't treat `data:` urls as same-origin resources.
+
+Googlers can see  internal change cl/363609175 for additional context.
+
+PR Close #45860
+
+
+diff --git a/packages/core/src/sanitization/url_sanitizer.ts b/packages/core/src/sanitization/url_sanitizer.ts
+--- a/packages/core/src/sanitization/url_sanitizer.ts
++++ b/packages/core/src/sanitization/url_sanitizer.ts
+@@ -36,19 +36,12 @@
+-const SAFE_URL_PATTERN = /^(?:(?:https?|mailto|ftp|tel|file|sms):|[^&:/?#]*(?:[/?#]|$))/gi;
+-
+-/* A pattern that matches safe srcset values */
+-const SAFE_SRCSET_PATTERN = /^(?:(?:https?|file):|[^&:/?#]*(?:[/?#]|$))/gi;
+-
+-/** A pattern that matches safe data URLs. Only matches image, video and audio types. */
+-const DATA_URL_PATTERN =
+-    /^data:(?:image\/(?:bmp|gif|jpeg|jpg|png|tiff|webp)|video\/(?:mpeg|mp4|ogg|webm)|audio\/(?:mp3|oga|ogg|opus));base64,[a-z0-9+\/]+=*$/i;
++const SAFE_URL_PATTERN = /^(?:(?:https?|mailto|data|ftp|tel|file|sms):|[^&:/?#]*(?:[/?#]|$))/gi;
+ 
+ export function _sanitizeUrl(url: string): string {
+   url = String(url);
+-  if (url.match(SAFE_URL_PATTERN) || url.match(DATA_URL_PATTERN)) return url;
++  if (url.match(SAFE_URL_PATTERN)) return url;
+ 
+   if (typeof ngDevMode === 'undefined' || ngDevMode) {
+     console.warn(`WARNING: sanitizing unsafe URL value ${url} (see https://g.co/ng/security#xss)`);
+   }
+ 
+   return 'unsafe:' + url;
+ }
+ARCH-COMMIT
+8b0cccca457801aa57427effc28c3dfe6b037c29
+2020-12-03T23:04:03+02:00
+arturovt
+perf(core): use `ngDevMode` to tree-shake warnings (#39959)
+
+This commit adds `ngDevMode` guard to show sanitization warnings only
+in dev mode (similar to how things work in other parts of Ivy runtime code).
+The `ngDevMode` flag helps to tree-shake these warnings from production builds
+(in dev mode everything will work as it works right now) to decrease production bundle size.
+
+PR Close #39959
+
+
+diff --git a/packages/core/src/sanitization/url_sanitizer.ts b/packages/core/src/sanitization/url_sanitizer.ts
+--- a/packages/core/src/sanitization/url_sanitizer.ts
++++ b/packages/core/src/sanitization/url_sanitizer.ts
+@@ -37,19 +36,19 @@
+ const SAFE_URL_PATTERN = /^(?:(?:https?|mailto|ftp|tel|file|sms):|[^&:/?#]*(?:[/?#]|$))/gi;
+ 
+ /* A pattern that matches safe srcset values */
+ const SAFE_SRCSET_PATTERN = /^(?:(?:https?|file):|[^&:/?#]*(?:[/?#]|$))/gi;
+ 
+ /** A pattern that matches safe data URLs. Only matches image, video and audio types. */
+ const DATA_URL_PATTERN =
+     /^data:(?:image\/(?:bmp|gif|jpeg|jpg|png|tiff|webp)|video\/(?:mpeg|mp4|ogg|webm)|audio\/(?:mp3|oga|ogg|opus));base64,[a-z0-9+\/]+=*$/i;
+ 
+ export function _sanitizeUrl(url: string): string {
+   url = String(url);
+   if (url.match(SAFE_URL_PATTERN) || url.match(DATA_URL_PATTERN)) return url;
+ 
+-  if (isDevMode()) {
++  if (typeof ngDevMode === 'undefined' || ngDevMode) {
+     console.warn(`WARNING: sanitizing unsafe URL value ${url} (see https://g.co/ng/security#xss)`);
+   }
+ 
+   return 'unsafe:' + url;
+ }
+ARCH-COMMIT
+3e1e5a15ba1d5a08daf9179083e3394df10299bb
+2020-11-16T22:37:09+01:00
+Marcono1234
+docs: update links to use HTTPS as protocol (#39718)
+
+PR Close #39718
+
+
+diff --git a/packages/core/src/sanitization/url_sanitizer.ts b/packages/core/src/sanitization/url_sanitizer.ts
+--- a/packages/core/src/sanitization/url_sanitizer.ts
++++ b/packages/core/src/sanitization/url_sanitizer.ts
+@@ -37,19 +37,19 @@
+ const SAFE_URL_PATTERN = /^(?:(?:https?|mailto|ftp|tel|file|sms):|[^&:/?#]*(?:[/?#]|$))/gi;
+ 
+ /* A pattern that matches safe srcset values */
+ const SAFE_SRCSET_PATTERN = /^(?:(?:https?|file):|[^&:/?#]*(?:[/?#]|$))/gi;
+ 
+ /** A pattern that matches safe data URLs. Only matches image, video and audio types. */
+ const DATA_URL_PATTERN =
+     /^data:(?:image\/(?:bmp|gif|jpeg|jpg|png|tiff|webp)|video\/(?:mpeg|mp4|ogg|webm)|audio\/(?:mp3|oga|ogg|opus));base64,[a-z0-9+\/]+=*$/i;
+ 
+ export function _sanitizeUrl(url: string): string {
+   url = String(url);
+   if (url.match(SAFE_URL_PATTERN) || url.match(DATA_URL_PATTERN)) return url;
+ 
+   if (isDevMode()) {
+-    console.warn(`WARNING: sanitizing unsafe URL value ${url} (see http://g.co/ng/security#xss)`);
++    console.warn(`WARNING: sanitizing unsafe URL value ${url} (see https://g.co/ng/security#xss)`);
+   }
+ 
+   return 'unsafe:' + url;
+ }
+ARCH-COMMIT
+fc5c34d1b804e062c3305458e1167aa8dc3591ca
+2020-06-25T07:01:32+05:30
+Santosh Yadav
+feat(platform-browser): Allow `sms`-URLs (#31463)
+
+sms ulr is already supported by google/closure-library and and validations are added to check
+if the body passed is safe or not you can refer https://github.com/google/closure-library/blob/bb7ea653194b590711614fd79b0a88a38a600740/closure/goog/html/safeurl.js#L440-L454 for more details
+
+Fixes #31462
+
+PR Close #31463
+
+
+diff --git a/packages/core/src/sanitization/url_sanitizer.ts b/packages/core/src/sanitization/url_sanitizer.ts
+--- a/packages/core/src/sanitization/url_sanitizer.ts
++++ b/packages/core/src/sanitization/url_sanitizer.ts
+@@ -37,19 +37,19 @@
+-const SAFE_URL_PATTERN = /^(?:(?:https?|mailto|ftp|tel|file):|[^&:/?#]*(?:[/?#]|$))/gi;
++const SAFE_URL_PATTERN = /^(?:(?:https?|mailto|ftp|tel|file|sms):|[^&:/?#]*(?:[/?#]|$))/gi;
+ 
+ /* A pattern that matches safe srcset values */
+ const SAFE_SRCSET_PATTERN = /^(?:(?:https?|file):|[^&:/?#]*(?:[/?#]|$))/gi;
+ 
+ /** A pattern that matches safe data URLs. Only matches image, video and audio types. */
+ const DATA_URL_PATTERN =
+     /^data:(?:image\/(?:bmp|gif|jpeg|jpg|png|tiff|webp)|video\/(?:mpeg|mp4|ogg|webm)|audio\/(?:mp3|oga|ogg|opus));base64,[a-z0-9+\/]+=*$/i;
+ 
+ export function _sanitizeUrl(url: string): string {
+   url = String(url);
+   if (url.match(SAFE_URL_PATTERN) || url.match(DATA_URL_PATTERN)) return url;
+ 
+   if (isDevMode()) {
+     console.warn(`WARNING: sanitizing unsafe URL value ${url} (see http://g.co/ng/security#xss)`);
+   }
+ 
+   return 'unsafe:' + url;
+ }
+ARCH-COMMIT
+6d1367d29707c2c449fda1adfa8a7177693f680b
+2018-03-01T17:14:01-08:00
+Miško Hevery
+feat(ivy): provide sanitization methods which can be tree shaken (#22540)
+
+By providing a top level sanitization methods (rather than service) the
+compiler can generate calls into the methods only when needed. This makes
+the methods tree shakable.
+
+PR Close #22540
+
+
+diff --git a/packages/core/src/sanitization/url_sanitizer.ts b/packages/core/src/sanitization/url_sanitizer.ts
+--- a/packages/core/src/sanitization/url_sanitizer.ts
++++ b/packages/core/src/sanitization/url_sanitizer.ts
+@@ -38,19 +37,19 @@
+ const SAFE_URL_PATTERN = /^(?:(?:https?|mailto|ftp|tel|file):|[^&:/?#]*(?:[/?#]|$))/gi;
+ 
+ /* A pattern that matches safe srcset values */
+ const SAFE_SRCSET_PATTERN = /^(?:(?:https?|file):|[^&:/?#]*(?:[/?#]|$))/gi;
+ 
+ /** A pattern that matches safe data URLs. Only matches image, video and audio types. */
+ const DATA_URL_PATTERN =
+     /^data:(?:image\/(?:bmp|gif|jpeg|jpg|png|tiff|webp)|video\/(?:mpeg|mp4|ogg|webm)|audio\/(?:mp3|oga|ogg|opus));base64,[a-z0-9+\/]+=*$/i;
+ 
+-export function sanitizeUrl(url: string): string {
++export function _sanitizeUrl(url: string): string {
+   url = String(url);
+   if (url.match(SAFE_URL_PATTERN) || url.match(DATA_URL_PATTERN)) return url;
+ 
+   if (isDevMode()) {
+     console.warn(`WARNING: sanitizing unsafe URL value ${url} (see http://g.co/ng/security#xss)`);
+   }
+ 
+   return 'unsafe:' + url;
+ }
+ARCH-COMMIT
+538f1d980f62a2f01ddc87c56c4ddb63a5c4298f
+2018-03-01T13:16:13-08:00
+Miško Hevery
+refactor(core): move sanitization into core (#22540)
+
+This is in preparation of having Ivy have sanitization inline.
+
+PR Close #22540
+
+
+diff --git a/packages/platform-browser/src/security/url_sanitizer.ts b/packages/core/src/sanitization/url_sanitizer.ts
+--- a/packages/platform-browser/src/security/url_sanitizer.ts
++++ b/packages/core/src/sanitization/url_sanitizer.ts
+@@ -40,19 +38,19 @@
+ const SAFE_URL_PATTERN = /^(?:(?:https?|mailto|ftp|tel|file):|[^&:/?#]*(?:[/?#]|$))/gi;
+ 
+ /* A pattern that matches safe srcset values */
+ const SAFE_SRCSET_PATTERN = /^(?:(?:https?|file):|[^&:/?#]*(?:[/?#]|$))/gi;
+ 
+ /** A pattern that matches safe data URLs. Only matches image, video and audio types. */
+ const DATA_URL_PATTERN =
+     /^data:(?:image\/(?:bmp|gif|jpeg|jpg|png|tiff|webp)|video\/(?:mpeg|mp4|ogg|webm)|audio\/(?:mp3|oga|ogg|opus));base64,[a-z0-9+\/]+=*$/i;
+ 
+ export function sanitizeUrl(url: string): string {
+   url = String(url);
+   if (url.match(SAFE_URL_PATTERN) || url.match(DATA_URL_PATTERN)) return url;
+ 
+   if (isDevMode()) {
+-    getDOM().log(`WARNING: sanitizing unsafe URL value ${url} (see http://g.co/ng/security#xss)`);
++    console.warn(`WARNING: sanitizing unsafe URL value ${url} (see http://g.co/ng/security#xss)`);
+   }
+ 
+   return 'unsafe:' + url;
+ }
+ARCH-COMMIT
+810c722413be130e2f8a562b281ae2f19af8ed08
+2016-06-28T18:13:46-07:00
+Martin Probst
+docs(security): point users to docs when sanitization fails. (#9680)
+
+
+
+diff --git a/modules/@angular/platform-browser/src/security/url_sanitizer.ts b/modules/@angular/platform-browser/src/security/url_sanitizer.ts
+--- a/modules/@angular/platform-browser/src/security/url_sanitizer.ts
++++ b/modules/@angular/platform-browser/src/security/url_sanitizer.ts
+@@ -40,17 +40,19 @@
+ const SAFE_URL_PATTERN = /^(?:(?:https?|mailto|ftp|tel|file):|[^&:/?#]*(?:[/?#]|$))/gi;
+ 
+ /* A pattern that matches safe srcset values */
+ const SAFE_SRCSET_PATTERN = /^(?:(?:https?|file):|[^&:/?#]*(?:[/?#]|$))/gi;
+ 
+ /** A pattern that matches safe data URLs. Only matches image, video and audio types. */
+ const DATA_URL_PATTERN =
+     /^data:(?:image\/(?:bmp|gif|jpeg|jpg|png|tiff|webp)|video\/(?:mpeg|mp4|ogg|webm)|audio\/(?:mp3|oga|ogg|opus));base64,[a-z0-9+\/]+=*$/i;
+ 
+ export function sanitizeUrl(url: string): string {
+   url = String(url);
+   if (url.match(SAFE_URL_PATTERN) || url.match(DATA_URL_PATTERN)) return url;
+ 
+-  if (isDevMode()) getDOM().log('WARNING: sanitizing unsafe URL value ' + url);
++  if (isDevMode()) {
++    getDOM().log(`WARNING: sanitizing unsafe URL value ${url} (see http://g.co/ng/security#xss)`);
++  }
+ 
+   return 'unsafe:' + url;
+ }
+ARCH-COMMIT
+6605eb30e9913e356f76752754e1c33221d3e9e4
+2016-06-24T16:54:11+02:00
+Cyrille Tuzi
+feat(security): allow more HTML5 elements and attributes in sanitizers
+
+Allow more elements and attributes from the HTML5 spec which were stripped by the htmlSanitizer.
+
+fixes #9438
+
+feat(security): allow audio data URLs in urlSanitizer
+
+test(security) : add test for valid audio data URL
+
+feat(security): allow and sanitize srcset attributes
+
+test(security): test for srcset sanitization
+
+
+diff --git a/modules/@angular/platform-browser/src/security/url_sanitizer.ts b/modules/@angular/platform-browser/src/security/url_sanitizer.ts
+--- a/modules/@angular/platform-browser/src/security/url_sanitizer.ts
++++ b/modules/@angular/platform-browser/src/security/url_sanitizer.ts
+@@ -40,14 +40,17 @@
+ const SAFE_URL_PATTERN = /^(?:(?:https?|mailto|ftp|tel|file):|[^&:/?#]*(?:[/?#]|$))/gi;
+ 
+-/** A pattern that matches safe data URLs. Only matches image and video types. */
++/* A pattern that matches safe srcset values */
++const SAFE_SRCSET_PATTERN = /^(?:(?:https?|file):|[^&:/?#]*(?:[/?#]|$))/gi;
++
++/** A pattern that matches safe data URLs. Only matches image, video and audio types. */
+ const DATA_URL_PATTERN =
+-    /^data:(?:image\/(?:bmp|gif|jpeg|jpg|png|tiff|webp)|video\/(?:mpeg|mp4|ogg|webm));base64,[a-z0-9+\/]+=*$/i;
++    /^data:(?:image\/(?:bmp|gif|jpeg|jpg|png|tiff|webp)|video\/(?:mpeg|mp4|ogg|webm)|audio\/(?:mp3|oga|ogg|opus));base64,[a-z0-9+\/]+=*$/i;
+ 
+ export function sanitizeUrl(url: string): string {
+   url = String(url);
+   if (url.match(SAFE_URL_PATTERN) || url.match(DATA_URL_PATTERN)) return url;
+ 
+   if (isDevMode()) getDOM().log('WARNING: sanitizing unsafe URL value ' + url);
+ 
+   return 'unsafe:' + url;
+ }
+ARCH-COMMIT
+c0f2a22a08e50550ed4ed4d1f701c26133c79000
+2016-06-17T14:09:19-07:00
+Tobias Bosch
+fix(perf): support prod mode again
+
+After splitting the facades into multiple modules,
+enabling prod mode for code had no effect for the compiler.
+
+Also in a change between RC1 and RC2 we created the `CompilerConfig`
+via a provider with `useValue` and not via a `useFactory`, which reads
+the prod mode too early.
+
+Closes #9318
+Closes #8508
+Closes #9318
+
+diff --git a/modules/@angular/platform-browser/src/security/url_sanitizer.ts b/modules/@angular/platform-browser/src/security/url_sanitizer.ts
+--- a/modules/@angular/platform-browser/src/security/url_sanitizer.ts
++++ b/modules/@angular/platform-browser/src/security/url_sanitizer.ts
+@@ -30,14 +32,14 @@
+ const SAFE_URL_PATTERN = /^(?:(?:https?|mailto|ftp|tel|file):|[^&:/?#]*(?:[/?#]|$))/gi;
+ 
+ /** A pattern that matches safe data URLs. Only matches image and video types. */
+ const DATA_URL_PATTERN =
+     /^data:(?:image\/(?:bmp|gif|jpeg|jpg|png|tiff|webp)|video\/(?:mpeg|mp4|ogg|webm));base64,[a-z0-9+\/]+=*$/i;
+ 
+ export function sanitizeUrl(url: string): string {
+   url = String(url);
+   if (url.match(SAFE_URL_PATTERN) || url.match(DATA_URL_PATTERN)) return url;
+ 
+-  if (assertionsEnabled()) getDOM().log('WARNING: sanitizing unsafe URL value ' + url);
++  if (isDevMode()) getDOM().log('WARNING: sanitizing unsafe URL value ' + url);
+ 
+   return 'unsafe:' + url;
+ }
+ARCH-COMMIT
+f39c9c9e75671a7e235734b6b8aef263f6dff254
+2016-06-08T16:38:52-07:00
+Alex Eagle
+style(lint): re-format modules/@angular
+
+
+diff --git a/modules/@angular/platform-browser/src/security/url_sanitizer.ts b/modules/@angular/platform-browser/src/security/url_sanitizer.ts
+--- a/modules/@angular/platform-browser/src/security/url_sanitizer.ts
++++ b/modules/@angular/platform-browser/src/security/url_sanitizer.ts
+@@ -30,13 +30,14 @@
+ const SAFE_URL_PATTERN = /^(?:(?:https?|mailto|ftp|tel|file):|[^&:/?#]*(?:[/?#]|$))/gi;
+ 
+ /** A pattern that matches safe data URLs. Only matches image and video types. */
+-const DATA_URL_PATTERN = /^data:(?:image\/(?:bmp|gif|jpeg|jpg|png|tiff|webp)|video\/(?:mpeg|mp4|ogg|webm));base64,[a-z0-9+\/]+=*$/i;
++const DATA_URL_PATTERN =
++    /^data:(?:image\/(?:bmp|gif|jpeg|jpg|png|tiff|webp)|video\/(?:mpeg|mp4|ogg|webm));base64,[a-z0-9+\/]+=*$/i;
+ 
+ export function sanitizeUrl(url: string): string {
+   url = String(url);
+   if (url.match(SAFE_URL_PATTERN) || url.match(DATA_URL_PATTERN)) return url;
+ 
+   if (assertionsEnabled()) getDOM().log('WARNING: sanitizing unsafe URL value ' + url);
+ 
+   return 'unsafe:' + url;
+ }
+ARCH-COMMIT
+dd50124254bbb2b1107e7869b316c5206d1212f7
+2016-05-15T11:44:52+02:00
+Martin Probst
+feat(security): allow data: URLs for images and videos.
+
+Allows known-to-be-safe media types in data URIs.
+
+Part of #8511.
+
+
+diff --git a/modules/@angular/platform-browser/src/security/url_sanitizer.ts b/modules/@angular/platform-browser/src/security/url_sanitizer.ts
+--- a/modules/@angular/platform-browser/src/security/url_sanitizer.ts
++++ b/modules/@angular/platform-browser/src/security/url_sanitizer.ts
+@@ -30,11 +30,13 @@
+ const SAFE_URL_PATTERN = /^(?:(?:https?|mailto|ftp|tel|file):|[^&:/?#]*(?:[/?#]|$))/gi;
+ 
++/** A pattern that matches safe data URLs. Only matches image and video types. */
++const DATA_URL_PATTERN = /^data:(?:image\/(?:bmp|gif|jpeg|jpg|png|tiff|webp)|video\/(?:mpeg|mp4|ogg|webm));base64,[a-z0-9+\/]+=*$/i;
++
+ export function sanitizeUrl(url: string): string {
+   url = String(url);
+-  if (url.match(SAFE_URL_PATTERN)) return url;
++  if (url.match(SAFE_URL_PATTERN) || url.match(DATA_URL_PATTERN)) return url;
++
++  if (assertionsEnabled()) getDOM().log('WARNING: sanitizing unsafe URL value ' + url);
+ 
+-  if (assertionsEnabled()) {
+-    getDOM().log('WARNING: sanitizing unsafe URL value ' + url);
+-  }
+   return 'unsafe:' + url;
+ }
+ARCH-COMMIT
+3e68b7eb1f35eefe4d95c007fae1500f468fd39b
+2016-05-09T16:46:31+02:00
+Martin Probst
+feat(security): warn users when sanitizing in dev mode.
+
+This should help developers to figure out what's going on when the sanitizer
+strips some input.
+
+Fixes #8522.
+
+
+diff --git a/modules/@angular/platform-browser/src/security/url_sanitizer.ts b/modules/@angular/platform-browser/src/security/url_sanitizer.ts
+--- a/modules/@angular/platform-browser/src/security/url_sanitizer.ts
++++ b/modules/@angular/platform-browser/src/security/url_sanitizer.ts
+@@ -27,6 +30,11 @@
+ const SAFE_URL_PATTERN = /^(?:(?:https?|mailto|ftp|tel|file):|[^&:/?#]*(?:[/?#]|$))/gi;
+ 
+ export function sanitizeUrl(url: string): string {
+-  if (String(url).match(SAFE_URL_PATTERN)) return url;
++  url = String(url);
++  if (url.match(SAFE_URL_PATTERN)) return url;
++
++  if (assertionsEnabled()) {
++    getDOM().log('WARNING: sanitizing unsafe URL value ' + url);
++  }
+   return 'unsafe:' + url;
+ }
+ARCH-COMMIT
+908a102a874ed38db7026a4fe69575bf14fbd845
+2016-04-29T16:04:08-07:00
+Martin Probst
+feat: security implementation in Angular 2.
+
+Summary:
+This adds basic security hooks to Angular 2.
+
+* `SecurityContext` is a private API between core, compiler, and
+  platform-browser. `SecurityContext` communicates what context a value is used
+  in across template parser, compiler, and sanitization at runtime.
+* `SanitizationService` is the bare bones interface to sanitize values for a
+  particular context.
+* `SchemaElementRegistry.securityContext(tagName, attributeOrPropertyName)`
+  determines the security context for an attribute or property (it turns out
+  attributes and properties match for the purposes of sanitization).
+
+Based on these hooks:
+
+* `DomSchemaElementRegistry` decides what sanitization applies in a particular
+  context.
+* `DomSanitizationService` implements `SanitizationService` and adds *Safe
+  Value*s, i.e. the ability to mark a value as safe and not requiring further
+  sanitization.
+* `url_sanitizer` and `style_sanitizer` sanitize URLs and Styles, respectively
+  (surprise!).
+
+`DomSanitizationService` is the default implementation bound for browser
+applications, in the three contexts (browser rendering, web worker rendering,
+server side rendering).
+
+BREAKING CHANGES:
+*** SECURITY WARNING ***
+Angular 2 Release Candidates do not implement proper contextual escaping yet.
+Make sure to correctly escape all values that go into the DOM.
+*** SECURITY WARNING ***
+
+Reviewers: IgorMinar
+
+Differential Revision: https://reviews.angular.io/D103
+
+
+diff --git a/modules/@angular/platform-browser/src/security/url_sanitizer.ts b/modules/@angular/platform-browser/src/security/url_sanitizer.ts
+--- /dev/null
++++ b/modules/@angular/platform-browser/src/security/url_sanitizer.ts
+@@ -0,0 +27,6 @@
++const SAFE_URL_PATTERN = /^(?:(?:https?|mailto|ftp|tel|file):|[^&:/?#]*(?:[/?#]|$))/gi;
++
++export function sanitizeUrl(url: string): string {
++  if (String(url).match(SAFE_URL_PATTERN)) return url;
++  return 'unsafe:' + url;
++}

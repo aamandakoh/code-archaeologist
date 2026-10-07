@@ -1,0 +1,13 @@
+{
+  "name": "@code-archaeologist/cli",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Runs the Code Archaeologist pipeline outside VS Code.",
+  "bin": { "archaeologist": "dist/cli.js" },
+  "scripts": {
+    "build": "esbuild src/cli.ts --bundle --platform=node --target=node22 --format=cjs --outfile=dist/cli.js --banner:js=\"#!/usr/bin/env node\""
+  },
+  "dependencies": {
+    "@code-archaeologist/core": "0.1.0"
+  }
+}

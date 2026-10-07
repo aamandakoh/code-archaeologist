@@ -1,0 +1,97 @@
+:root {
+  --gap: 12px;
+  --radius: 6px;
+  --add-bg: var(--vscode-diffEditor-insertedLineBackground, rgba(155, 185, 85, 0.2));
+  --del-bg: var(--vscode-diffEditor-removedLineBackground, rgba(255, 0, 0, 0.2));
+  --border: var(--vscode-panel-border, rgba(128, 128, 128, 0.35));
+  --muted: var(--vscode-descriptionForeground, #8b8b8b);
+}
+
+body {
+  font-family: var(--vscode-font-family);
+  font-size: var(--vscode-font-size);
+  color: var(--vscode-foreground);
+  background: var(--vscode-editor-background);
+  padding: 0 16px 32px;
+  line-height: 1.45;
+}
+
+h1 { font-size: 1.25em; margin: 16px 0 4px; word-break: break-all; }
+h2 { font-size: 1em; margin: 0 0 6px; }
+h3 { font-size: 1.05em; margin: 0 0 4px; }
+a { color: var(--vscode-textLink-foreground); text-decoration: none; }
+a:hover { text-decoration: underline; }
+code, pre { font-family: var(--vscode-editor-font-family); font-size: var(--vscode-editor-font-size); }
+pre { margin: 0; }
+summary { cursor: pointer; color: var(--muted); }
+
+.meta { color: var(--muted); margin: 0 0 6px; }
+.status { display: flex; align-items: center; gap: 8px; color: var(--muted); }
+.error { color: var(--vscode-errorForeground); white-space: pre-wrap; }
+
+.spinner {
+  width: 12px; height: 12px; border-radius: 50%;
+  border: 2px solid var(--border); border-top-color: var(--vscode-progressBar-background, #0e70c0);
+  animation: spin 0.8s linear infinite;
+}
+@keyframes spin { to { transform: rotate(360deg); } }
+
+.noise ul { margin: 4px 0 0; padding-left: 18px; color: var(--muted); }
+
+.story {
+  position: sticky; top: 0; z-index: 1;
+  margin: var(--gap) 0;
+  padding: 10px 12px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--vscode-editorWidget-background, var(--vscode-editor-background));
+}
+.story p { margin: 0; }
+.pending { color: var(--muted); }
+.story.pending { border-style: dashed; }
+
+.warnings p {
+  margin: 0 0 var(--gap);
+  padding: 8px 12px;
+  border-left: 3px solid var(--vscode-editorWarning-foreground, #cca700);
+  background: var(--vscode-inputValidation-warningBackground, transparent);
+}
+
+.controls { display: flex; align-items: center; gap: 8px; margin: var(--gap) 0; }
+.controls input[type='range'] { flex: 1; accent-color: var(--vscode-button-background); }
+.controls button {
+  min-width: 28px; height: 24px; font-size: 16px; line-height: 1;
+  color: var(--vscode-button-secondaryForeground); background: var(--vscode-button-secondaryBackground);
+  border: none; border-radius: 4px; cursor: pointer;
+}
+.controls button:disabled { opacity: 0.4; cursor: default; }
+.position { color: var(--muted); min-width: 4.5em; text-align: right; font-variant-numeric: tabular-nums; }
+
+.step { border: 1px solid var(--border); border-radius: var(--radius); padding: 12px; }
+.step .body pre { white-space: pre-wrap; color: var(--muted); margin-top: 4px; }
+.note { font-style: italic; margin: 8px 0; }
+
+.snapshot, .removed pre {
+  overflow-x: auto;
+  padding: 6px 0;
+  border-radius: 4px;
+  background: var(--vscode-textCodeBlock-background, rgba(128, 128, 128, 0.1));
+}
+.line { display: flex; white-space: pre; padding-right: 12px; min-width: 100%; width: max-content; box-sizing: border-box; }
+.line.add { background: var(--add-bg); }
+.line.del { background: var(--del-bg); padding-left: 12px; }
+.ln { width: 3.5em; flex: none; text-align: right; padding-right: 8px; color: var(--vscode-editorLineNumber-foreground, var(--muted)); user-select: none; }
+.mark { width: 1.2em; flex: none; color: var(--muted); user-select: none; }
+.removed { margin-top: 8px; }
+.removed pre { margin-top: 4px; }
+
+.history { margin-top: 20px; }
+.history ol { list-style: none; margin: 0; padding: 0; }
+.history li {
+  display: grid; grid-template-columns: 6.5em 4.5em 1fr auto; gap: 8px; align-items: baseline;
+  padding: 4px 6px; border-radius: 4px; cursor: pointer;
+}
+.history li:hover { background: var(--vscode-list-hoverBackground); }
+.history li.current { background: var(--vscode-list-activeSelectionBackground); color: var(--vscode-list-activeSelectionForeground); }
+.history .date, .history .churn { color: inherit; opacity: 0.75; font-variant-numeric: tabular-nums; }
+.history .subject { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
