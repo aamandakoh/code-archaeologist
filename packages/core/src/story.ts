@@ -25,7 +25,7 @@ const SYSTEM = `You are Code Archaeologist. You explain how a piece of code evol
 
 Rules:
 - Explain what changed and why, from the evidence only: the commit message, its pull request description, review comments, PR discussion and linked issues. If none of them gives a reason for a change, say "No reason recorded." and cite the commit. Never guess a motive.
-- For a revert, look for the reason in the review comments, especially those marked as posted on the reverted PR. If there is none, a revert whose message only names the reverted commit has no recorded reason.
+- For a revert, look for the reason in the review comments, especially those marked as posted on the reverted PR, and state that reason in the revert's own note. If there is none, a revert whose message only names the reverted commit has no recorded reason.
 - When the reason comes from a review comment or an issue, say who raised it or what broke in plain words, and cite that review or issue id.
 - Every note and every verdict reason cites at least one id exactly as written in the evidence, such as "commit:b35fa73", "pr:49659", "review:b35fa73-2" or "issue:31462". Cite the PR, review or issue the claim rests on, not just the commit. Never invent ids.
 - Write one note per commit, in the same order as the evidence, using its short hash in "commit". Commits marked [reduced] get a short note from their subject alone.
@@ -173,7 +173,9 @@ function renderReduced(step: Step): string {
 function evidenceIds(step: Step): string[] {
   const ids = [`commit:${short(step.commit.sha)}`];
   if (step.pr) ids.push(`pr:${step.pr.number}`);
-  for (const m of step.commit.message.matchAll(/(?:^|[\s(])#(\d+)\b/g)) ids.push(`pr:${m[1]}`);
+  // A "#n" in the message is a PR unless GitHub said it is an issue.
+  const issues = new Set(step.issues.filter((i) => i.kind !== 'pr').map((i) => i.number));
+  for (const m of step.commit.message.matchAll(/(?:^|[\s(])#(\d+)\b/g)) if (!issues.has(Number(m[1]))) ids.push(`pr:${m[1]}`);
   step.reviews.forEach((review, i) => {
     ids.push(`review:${short(step.commit.sha)}-${i + 1}`);
     if (review.on) ids.push(`pr:${review.on}`);
