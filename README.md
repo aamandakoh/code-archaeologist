@@ -12,8 +12,8 @@ cited "safe to change?" verdict pinned at the top.
 | M1 | `git log -L` trace, noise filter, CLI, raw history panel | Done |
 | M2 | AI notes, summary and risk verdict (Gemini) | Done |
 | M3 | GitHub PRs, review comments and issues | Done |
-| M4 | Time-lapse UI polish | Next |
-| M5 | Demo recording | |
+| M4 | Time-lapse UI polish | Done |
+| M5 | Demo recording | Next |
 
 ## Layout
 
@@ -40,7 +40,7 @@ window, open a file in any git repository, select some lines, right-click and ch
 **Why is this here?** (or run **Code Archaeologist: Why is this here?** from the command palette).
 
 Install it in your normal VS Code instead: `npm run package -w packages/extension`, then
-**Extensions: Install from VSIX…** and pick `packages/extension/code-archaeologist-0.3.0.vsix`.
+**Extensions: Install from VSIX…** and pick `packages/extension/code-archaeologist-0.4.0.vsix`.
 
 ## CLI
 

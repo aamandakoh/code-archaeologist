@@ -1,5 +1,13 @@
 :root {
   --gap: 12px;
+  --thumb: 14px;
+  --kind-revert: var(--vscode-errorForeground, #f14c4c);
+  --kind-fix: var(--vscode-editorWarning-foreground, #cca700);
+  --kind-feat: var(--vscode-testing-iconPassed, #388a34);
+  --kind-perf: var(--vscode-charts-purple, #b180d7);
+  --kind-refactor: var(--vscode-charts-blue, #3794ff);
+  --kind-docs: var(--muted);
+  --kind-other: var(--muted);
   --radius: 6px;
   --add-bg: var(--vscode-diffEditor-insertedLineBackground, rgba(155, 185, 85, 0.2));
   --del-bg: var(--vscode-diffEditor-removedLineBackground, rgba(255, 0, 0, 0.2));
@@ -67,6 +75,10 @@ summary { cursor: pointer; color: var(--muted); }
 .story li { margin: 2px 0; }
 .reasons li.jump { cursor: pointer; border-radius: 4px; }
 .reasons li.jump:hover, .reasons li.jump:focus { background: var(--vscode-list-hoverBackground); outline: none; }
+.reasons li.here { background: var(--vscode-editor-findMatchHighlightBackground, rgba(234, 92, 0, 0.25)); }
+.verdict-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+.fold { padding: 0; border: none; background: none; cursor: pointer; color: var(--vscode-textLink-foreground); font-size: 0.85em; }
+.story.collapsed .reasons, .story.collapsed .checks, .story.collapsed .fineprint, .story.collapsed .github-notice { display: none; }
 .checks { margin-top: 6px; }
 .checks summary { font-weight: 600; }
 .fineprint { color: var(--muted); font-size: 0.85em; margin-top: 8px !important; }
@@ -90,22 +102,72 @@ summary { cursor: pointer; color: var(--muted); }
   background: var(--vscode-inputValidation-warningBackground, transparent);
 }
 
-.controls { display: flex; align-items: center; gap: 8px; margin: var(--gap) 0; }
-.controls input[type='range'] { flex: 1; accent-color: var(--vscode-button-background); }
+.controls { display: flex; align-items: flex-start; gap: 8px; margin: var(--gap) 0 4px; }
+.controls > button { margin-top: 2px; }
 .controls button {
   min-width: 28px; height: 24px; font-size: 16px; line-height: 1;
   color: var(--vscode-button-secondaryForeground); background: var(--vscode-button-secondaryBackground);
   border: none; border-radius: 4px; cursor: pointer;
 }
 .controls button:disabled { opacity: 0.4; cursor: default; }
+.controls button.play { min-width: 34px; font-size: 13px; color: var(--vscode-button-foreground); background: var(--vscode-button-background); }
+.controls button.play:hover { background: var(--vscode-button-hoverBackground); }
+.controls button.play.on { background: var(--vscode-button-secondaryBackground); color: var(--vscode-button-secondaryForeground); }
+
+/* The slider with a dot per commit and year labels underneath. */
+.scrubber { flex: 1; min-width: 0; position: relative; padding-bottom: 30px; }
+.scrubber input[type='range'] {
+  -webkit-appearance: none; appearance: none; width: 100%; height: 28px; margin: 0; background: transparent; cursor: pointer;
+}
+.scrubber input[type='range']::-webkit-slider-runnable-track { height: 4px; border-radius: 2px; background: var(--border); }
+.scrubber input[type='range']::-webkit-slider-thumb {
+  -webkit-appearance: none; width: var(--thumb); height: var(--thumb); margin-top: -5px; border-radius: 50%;
+  background: var(--vscode-button-background); border: 2px solid var(--vscode-editor-background);
+}
+.scrubber input[type='range']:focus-visible { outline: 1px solid var(--vscode-focusBorder); outline-offset: 2px; }
+.track { position: absolute; left: 0; right: 0; top: 26px; height: 30px; }
+.controls .dot {
+  position: absolute; top: 0; min-width: 0; width: 9px; height: 9px; padding: 0; margin-left: -4.5px; border-radius: 50%;
+  border: none; cursor: pointer; background: var(--kind-other); opacity: 0.75;
+  transition: transform 0.15s ease, opacity 0.15s ease;
+}
+.controls .dot:hover { opacity: 1; transform: scale(1.3); }
+.controls .dot.current { opacity: 1; transform: scale(1.5); box-shadow: 0 0 0 2px var(--vscode-editor-background), 0 0 0 3px var(--vscode-focusBorder); }
+.controls .dot.cited::after { content: ''; position: absolute; inset: -3px; border-radius: 50%; border: 1px solid currentColor; color: var(--vscode-errorForeground, #f14c4c); }
+.year { position: absolute; top: 13px; transform: translateX(-50%); font-size: 0.8em; color: var(--muted); white-space: nowrap; pointer-events: none; font-variant-numeric: tabular-nums; }
+.kind-revert { --kind: var(--kind-revert); }
+.kind-fix { --kind: var(--kind-fix); }
+.kind-feat { --kind: var(--kind-feat); }
+.kind-perf { --kind: var(--kind-perf); }
+.kind-refactor { --kind: var(--kind-refactor); }
+.kind-docs { --kind: var(--kind-docs); }
+.kind-other { --kind: var(--kind-other); }
+.controls .dot[class*='kind-'] { background: var(--kind); }
+
+.options { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 14px; margin: 0 0 var(--gap); color: var(--muted); font-size: 0.9em; }
+.options label { display: inline-flex; align-items: center; gap: 4px; cursor: pointer; }
+.options .speed {
+  padding: 1px 8px; border: 1px solid var(--border); border-radius: 10px; cursor: pointer;
+  color: var(--vscode-foreground); background: transparent; font-variant-numeric: tabular-nums;
+}
+.options .hint { margin-left: auto; opacity: 0.8; }
+
+.kind {
+  display: inline-block; padding: 0 7px; border-radius: 9px; font-size: 0.8em; line-height: 1.6;
+  color: var(--kind); border: 1px solid var(--kind);
+}
 .position { color: var(--muted); min-width: 4.5em; text-align: right; font-variant-numeric: tabular-nums; }
 
 .step { border: 1px solid var(--border); border-radius: var(--radius); padding: 12px; }
+.step.entering { animation: step-in 0.35s ease-out; }
+@keyframes step-in { from { opacity: 0.35; transform: translateY(4px); } to { opacity: 1; transform: none; } }
+.step-head { display: flex; align-items: center; gap: 8px; margin-bottom: 6px; }
+.gap { color: var(--muted); font-size: 0.85em; }
 .step .body pre { white-space: pre-wrap; color: var(--muted); margin-top: 4px; }
 .note { margin: 8px 0; padding: 6px 10px; border-left: 3px solid var(--vscode-textLink-foreground); background: var(--vscode-textBlockQuote-background, transparent); }
 .note.pending { border-left-color: var(--border); font-style: italic; }
 
-.snapshot, .removed pre {
+.snapshot {
   overflow-x: auto;
   padding: 6px 0;
   border-radius: 4px;
@@ -113,16 +175,40 @@ summary { cursor: pointer; color: var(--muted); }
 }
 .line { display: flex; white-space: pre; padding-right: 12px; min-width: 100%; width: max-content; box-sizing: border-box; }
 .line.add { background: var(--add-bg); }
-.line.del { background: var(--del-bg); padding-left: 12px; }
+.line.del { background: var(--del-bg); }
+.line.del .text { text-decoration: line-through; text-decoration-color: rgba(255, 255, 255, 0.35); }
+.line.skip { color: var(--muted); }
+.churn-line { margin: 8px 0 4px; color: var(--muted); font-size: 0.85em; }
+
+/* Removed lines are hidden unless kept; when stepping forward they flash and fold away first. */
+.snapshot:not(.keep-removed):not(.animate) .line.del { display: none; }
+.snapshot.animate .line { overflow: hidden; }
+.snapshot.animate:not(.keep-removed) .line.del { animation: fold-away 1.1s ease-in both; }
+.snapshot.animate .line.add { animation: grow-in 0.6s ease-out 0.55s both, flash 1.6s ease-out 0.55s; }
+.snapshot.animate.keep-removed .line.add { animation-delay: 0.1s; }
+@keyframes fold-away {
+  0%, 45% { max-height: 1.6em; opacity: 1; }
+  100% { max-height: 0; opacity: 0; }
+}
+@keyframes grow-in {
+  from { max-height: 0; opacity: 0; }
+  to { max-height: 1.6em; opacity: 1; }
+}
+@keyframes flash {
+  0% { box-shadow: inset 3px 0 0 var(--vscode-testing-iconPassed, #388a34); filter: brightness(1.6); }
+  100% { box-shadow: inset 3px 0 0 transparent; filter: none; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .snapshot.animate .line, .step.entering { animation: none !important; }
+  .snapshot.animate:not(.keep-removed) .line.del { display: none; }
+}
 .ln { width: 3.5em; flex: none; text-align: right; padding-right: 8px; color: var(--vscode-editorLineNumber-foreground, var(--muted)); user-select: none; }
 .mark { width: 1.2em; flex: none; color: var(--muted); user-select: none; }
-.removed { margin-top: 8px; }
-.removed pre { margin-top: 4px; }
 
 .history { margin-top: 20px; }
 .history ol { list-style: none; margin: 0; padding: 0; }
 .history li {
-  display: grid; grid-template-columns: 6.5em 4.5em 1fr auto; gap: 8px; align-items: baseline;
+  display: grid; grid-template-columns: 6.5em 5.5em 1fr auto; gap: 8px; align-items: baseline;
   padding: 4px 6px; border-radius: 4px; cursor: pointer;
 }
 .history li:hover { background: var(--vscode-list-hoverBackground); }
@@ -142,3 +228,7 @@ summary { cursor: pointer; color: var(--muted); }
 }
 .github-notice { margin-top: 8px !important; color: var(--muted); font-size: 0.9em; }
 .action.secondary { color: var(--vscode-button-secondaryForeground); background: var(--vscode-button-secondaryBackground); margin-top: 4px; }
+
+.history .kind { justify-self: start; }
+.history li.current .kind { color: inherit; border-color: currentColor; }
+.chip.review { font-family: inherit; }

@@ -1,19 +1,35 @@
 import type { Step, Story, Timeline } from '@code-archaeologist/core/src/types.js';
 import type { AiState, FromWebview, ToWebview } from '../src/messages';
 
-declare function acquireVsCodeApi(): { postMessage(message: FromWebview): void };
+type ViewState = { showRemoved?: boolean; storyCollapsed?: boolean; speed?: number };
+
+declare function acquireVsCodeApi(): {
+  postMessage(message: FromWebview): void;
+  getState(): ViewState | undefined;
+  setState(state: ViewState): void;
+};
 
 const vscode = acquireVsCodeApi();
 const app = document.getElementById('app')!;
+const reducedMotion = window.matchMedia('(prefers-reduced-motion: reduce)');
 
 let timeline: Timeline | undefined;
 let ai: AiState = { status: 'writing' };
 let current = 0;
+/** Panel preferences that survive the panel being hidden and shown again. */
+let view: ViewState = vscode.getState() ?? {};
+/** The pending auto-advance while the time-lapse plays. */
+let playing: ReturnType<typeof setTimeout> | undefined;
+
+/** Milliseconds each commit stays on screen while playing, at 1x. */
+const STEP_MS = 2600;
+const SPEEDS = [1, 2, 4];
 
 window.addEventListener('message', (event: MessageEvent<ToWebview>) => {
   const message = event.data;
   switch (message.type) {
     case 'loading':
+      stop();
       timeline = undefined;
       renderLoading(`${message.file}:${message.range[0]}-${message.range[1]}`, message.message);
       break;
@@ -26,17 +42,19 @@ window.addEventListener('message', (event: MessageEvent<ToWebview>) => {
       const same = timeline !== undefined && sameTrace(timeline, message.timeline) && document.getElementById('story');
       timeline = message.timeline;
       ai = message.ai;
-      if (same) {
-        // The story arrived for the timeline on screen: update in place, keep the slider where it is.
-        document.getElementById('story')!.replaceWith(renderStory(timeline, ai));
-        if (timeline.steps.length > 0) select(current);
-      } else {
+      if (!same) {
+        stop();
         current = Math.max(0, timeline.steps.length - 1);
-        renderTimeline(timeline);
       }
+      // GitHub context or the story arrived for the lines on screen: redraw in place, keep the
+      // slider (and a playing time-lapse) where they are.
+      const scroll = window.scrollY;
+      renderTimeline(timeline);
+      if (same) window.scrollTo(0, scroll);
       break;
     }
     case 'error':
+      stop();
       timeline = undefined;
       renderError(message.message);
       break;
@@ -44,10 +62,24 @@ window.addEventListener('message', (event: MessageEvent<ToWebview>) => {
 });
 
 document.addEventListener('keydown', (event) => {
-  if (!timeline || (event.target as HTMLElement).tagName === 'INPUT') return;
-  if (event.key === 'ArrowLeft') select(current - 1);
-  if (event.key === 'ArrowRight') select(current + 1);
+  const target = event.target as HTMLElement;
+  if (!timeline || timeline.steps.length === 0 || target.tagName === 'INPUT' || event.metaKey || event.ctrlKey || event.altKey) return;
+  const go = (index: number) => {
+    event.preventDefault();
+    stop();
+    select(index, index === current + 1);
+  };
+  if (event.key === 'ArrowLeft') go(current - 1);
+  else if (event.key === 'ArrowRight') go(current + 1);
+  else if (event.key === 'Home') go(0);
+  else if (event.key === 'End') go(timeline.steps.length - 1);
+  else if (event.key === ' ' && !['BUTTON', 'SUMMARY', 'A'].includes(target.tagName)) {
+    event.preventDefault();
+    togglePlay();
+  }
 });
+
+reducedMotion.addEventListener('change', () => timeline && select(current));
 
 vscode.postMessage({ type: 'ready' });
 
@@ -65,6 +97,11 @@ function el<K extends keyof HTMLElementTagNameMap>(
   for (const [key, value] of Object.entries(props.attrs ?? {})) node.setAttribute(key, value);
   for (const child of children) if (child) node.append(child);
   return node;
+}
+
+function saveView(change: ViewState) {
+  view = { ...view, ...change };
+  vscode.setState(view);
 }
 
 function renderLoading(title: string, message: string) {
@@ -86,7 +123,6 @@ function renderTimeline(t: Timeline) {
   const first = t.steps[0];
   const last = t.steps.at(-1);
   const span = first && last ? `${shortDate(first.commit.date)} to ${shortDate(last.commit.date)}` : 'no history';
-  const plural = (n: number, word: string) => `${n} ${word}${n === 1 ? '' : 's'}`;
 
   const noise =
     t.noise.length > 0 &&
@@ -107,7 +143,7 @@ function renderTimeline(t: Timeline) {
     'header',
     { class: 'summary' },
     el('h1', { text: `${t.file}:${start}-${end}` }),
-    el('p', { class: 'meta', text: `${plural(t.steps.length, 'commit')} · ${span}` }),
+    el('p', { class: 'meta', text: `${plural(t.steps.length, 'commit')} · ${span}${t.context ? ` · ${plural(t.context.prs, 'pull request')} from GitHub` : ''}` }),
     noise,
   );
 
@@ -124,16 +160,57 @@ function renderTimeline(t: Timeline) {
   const slider = el('input', {
     attrs: { type: 'range', min: '0', max: String(t.steps.length - 1), value: String(current), id: 'slider', 'aria-label': 'Commit' },
   });
-  slider.addEventListener('input', () => select(Number(slider.value)));
-  const prev = el('button', { text: '‹', attrs: { id: 'prev', title: 'Previous commit (←)', 'aria-label': 'Previous commit' } });
-  const next = el('button', { text: '›', attrs: { id: 'next', title: 'Next commit (→)', 'aria-label': 'Next commit' } });
-  prev.addEventListener('click', () => select(current - 1));
-  next.addEventListener('click', () => select(current + 1));
+  slider.addEventListener('input', () => {
+    stop();
+    select(Number(slider.value), Number(slider.value) === current + 1);
+  });
+  const button = (id: string, text: string, label: string, onClick: () => void) => {
+    const b = el('button', { text, attrs: { id, title: label, 'aria-label': label } });
+    b.addEventListener('click', onClick);
+    return b;
+  };
+  const prev = button('prev', '‹', 'Previous commit (←)', () => {
+    stop();
+    select(current - 1);
+  });
+  const next = button('next', '›', 'Next commit (→)', () => {
+    stop();
+    select(current + 1, true);
+  });
+  const play = button('play', '▶', 'Play the history (Space)', togglePlay);
+  play.classList.add('play');
+  const speed = button('speed', `${view.speed ?? 1}×`, 'Playback speed', () => {
+    const i = SPEEDS.indexOf(view.speed ?? 1);
+    saveView({ speed: SPEEDS[(i + 1) % SPEEDS.length] });
+    speed.textContent = `${view.speed}×`;
+  });
+  speed.classList.add('speed');
+  const removedToggle = el('input', { attrs: { type: 'checkbox', id: 'show-removed' } });
+  removedToggle.checked = Boolean(view.showRemoved);
+  removedToggle.addEventListener('change', () => {
+    saveView({ showRemoved: removedToggle.checked });
+    select(current);
+  });
 
   const player = el(
     'section',
-    { class: 'player' },
-    el('div', { class: 'controls' }, prev, slider, next, el('span', { class: 'position', attrs: { id: 'position' } })),
+    { class: 'player', attrs: { 'aria-label': 'Time-lapse' } },
+    el(
+      'div',
+      { class: 'controls' },
+      play,
+      prev,
+      el('div', { class: 'scrubber' }, slider, renderTrack(t)),
+      next,
+      el('span', { class: 'position', attrs: { id: 'position' } }),
+    ),
+    el(
+      'div',
+      { class: 'options' },
+      speed,
+      el('label', { attrs: { for: 'show-removed' } }, removedToggle, ' Keep removed lines visible'),
+      el('span', { class: 'hint', text: 'Space plays · ← → step · Home End jump' }),
+    ),
     el('div', { attrs: { id: 'step' } }),
   );
 
@@ -145,17 +222,24 @@ function renderTimeline(t: Timeline) {
       'ol',
       { attrs: { id: 'commit-list' } },
       ...t.steps.map((step, index) => {
+        const kind = kindOf(step);
         const row = el(
           'li',
           { attrs: { tabindex: '0', 'data-index': String(index) } },
           el('span', { class: 'date', text: shortDate(step.commit.date) }),
-          el('code', { class: 'sha', text: step.commit.sha.slice(0, 7) }),
+          el('span', { class: `kind kind-${kind.id}`, text: kind.label }),
           el('span', { class: 'subject', text: subject(step.commit.message) }),
           el('span', { class: 'churn', text: `+${step.addedLines.length} −${step.removedLines.length}` }),
         );
-        row.addEventListener('click', () => select(index));
+        row.addEventListener('click', () => {
+          stop();
+          select(index);
+        });
         row.addEventListener('keydown', (e) => {
-          if (e.key === 'Enter') select(index);
+          if (e.key === 'Enter') {
+            stop();
+            select(index);
+          }
         });
         return row;
       }),
@@ -166,8 +250,51 @@ function renderTimeline(t: Timeline) {
   select(current);
 }
 
-function select(index: number) {
-  if (!timeline) return;
+/** One dot per commit under the slider, coloured by kind, with a year label where the year changes. */
+function renderTrack(t: Timeline): HTMLElement {
+  const cited = citedSteps(t);
+  const n = t.steps.length;
+  // Matches the thumb width in panel.css, so a dot sits under the thumb when it is on that commit.
+  const at = (i: number) => (n === 1 ? 'calc(50%)' : `calc(var(--thumb) / 2 + (100% - var(--thumb)) * ${i / (n - 1)})`);
+  const track = el('div', { class: 'track', attrs: { 'aria-hidden': 'true' } });
+  t.steps.forEach((step, i) => {
+    const kind = kindOf(step);
+    const dot = el('button', {
+      class: `dot kind-${kind.id}${cited.has(i) ? ' cited' : ''}`,
+      attrs: { 'data-index': String(i), title: `${shortDate(step.commit.date)} · ${subject(step.commit.message)}`, tabindex: '-1' },
+    });
+    dot.style.left = at(i);
+    dot.addEventListener('click', () => {
+      stop();
+      select(i, i === current + 1);
+    });
+    track.append(dot);
+    const year = step.commit.date.slice(0, 4);
+    const prevYear = t.steps[i - 1]?.commit.date.slice(0, 4);
+    if (year !== prevYear) {
+      const label = el('span', { class: 'year', text: year });
+      label.style.left = at(i);
+      track.append(label);
+    }
+  });
+  new ResizeObserver(() => declutterYears(track)).observe(track);
+  return track;
+}
+
+/** Hides year labels that would overlap, keeping the most recent years. */
+function declutterYears(track: HTMLElement) {
+  const labels = [...track.querySelectorAll<HTMLElement>('.year')];
+  let leftEdge = Infinity;
+  for (const label of labels.reverse()) {
+    label.style.visibility = '';
+    const box = label.getBoundingClientRect();
+    if (box.right + 6 > leftEdge) label.style.visibility = 'hidden';
+    else leftEdge = box.left;
+  }
+}
+
+function select(index: number, animate = false) {
+  if (!timeline || timeline.steps.length === 0) return;
   current = Math.min(Math.max(index, 0), timeline.steps.length - 1);
   const step = timeline.steps[current]!;
 
@@ -175,51 +302,193 @@ function select(index: number) {
   document.getElementById('position')!.textContent = `${current + 1} / ${timeline.steps.length}`;
   (document.getElementById('prev') as HTMLButtonElement).disabled = current === 0;
   (document.getElementById('next') as HTMLButtonElement).disabled = current === timeline.steps.length - 1;
-  document.querySelectorAll('#commit-list li').forEach((li) => {
-    li.classList.toggle('current', li.getAttribute('data-index') === String(current));
-  });
-  document.getElementById('step')!.replaceChildren(renderStep(timeline, step));
+  for (const node of document.querySelectorAll('#commit-list li, .track .dot')) {
+    node.classList.toggle('current', node.getAttribute('data-index') === String(current));
+  }
+  // Light up the verdict reasons that rest on this commit.
+  for (const node of document.querySelectorAll('.reasons li[data-step]')) {
+    node.classList.toggle('here', node.getAttribute('data-step') === String(current));
+  }
+  document.getElementById('step')!.replaceChildren(renderStep(timeline, step, animate && !reducedMotion.matches));
 }
 
-function renderStep(t: Timeline, step: Step): HTMLElement {
+function togglePlay() {
+  if (playing !== undefined) return stop();
+  if (!timeline || timeline.steps.length < 2) return;
+  // From the end, play from the start; otherwise carry on from here.
+  if (current >= timeline.steps.length - 1) select(0);
+  setPlaying(true);
+  const tick = () => {
+    if (!timeline || current >= timeline.steps.length - 1) return stop();
+    select(current + 1, true);
+    playing = current >= timeline.steps.length - 1 ? undefined : setTimeout(tick, STEP_MS / (view.speed ?? 1));
+    if (playing === undefined) setPlaying(false);
+  };
+  playing = setTimeout(tick, STEP_MS / 2 / (view.speed ?? 1));
+}
+
+function stop() {
+  if (playing !== undefined) clearTimeout(playing);
+  playing = undefined;
+  setPlaying(false);
+}
+
+function setPlaying(on: boolean) {
+  const play = document.getElementById('play');
+  if (!play) return;
+  play.textContent = on ? '❚❚' : '▶';
+  play.setAttribute('aria-label', on ? 'Pause (Space)' : 'Play the history (Space)');
+  play.title = play.getAttribute('aria-label')!;
+  play.classList.toggle('on', on);
+}
+
+function renderStep(t: Timeline, step: Step, animate: boolean): HTMLElement {
   const { commit } = step;
   const body = commit.message.split('\n').slice(1).join('\n').trim();
+  const kind = kindOf(step);
+  const previous = t.steps[current - 1];
+  const gap = previous ? elapsed(previous.commit.date, commit.date) : 'first version';
 
-  const removed =
-    step.removedLines.length > 0 &&
-    el(
-      'details',
-      { class: 'removed' },
-      el('summary', { text: `${step.removedLines.length} line${step.removedLines.length === 1 ? '' : 's'} removed by this commit` }),
-      el('pre', {}, ...step.removedLines.map((line) => el('div', { class: 'line del', text: line || ' ' }))),
-    );
-
-  const added = new Set(step.addedLines);
-  const code = el(
-    'pre',
-    { class: 'snapshot' },
-    ...step.snapshot.split('\n').map((line, i) =>
-      el(
-        'div',
-        { class: added.has(i + 1) ? 'line add' : 'line' },
-        el('span', { class: 'ln', text: String(step.startLine + i), attrs: { 'aria-hidden': 'true' } }),
-        el('span', { class: 'mark', text: added.has(i + 1) ? '+' : ' ', attrs: { 'aria-hidden': 'true' } }),
-        el('span', { class: 'text', text: line || ' ' }),
-      ),
-    ),
+  const fileUrl = fileAtCommit(t, step);
+  const links = el(
+    'p',
+    { class: 'meta' },
+    commitLink(t, commit.sha),
+    ` · ${commit.author} · ${shortDate(commit.date)}`,
+    fileUrl && ' · ',
+    fileUrl && el('a', { text: 'file at this commit', attrs: { href: fileUrl } }),
   );
 
   return el(
     'article',
-    { class: 'step' },
+    { class: `step${animate ? ' entering' : ''}` },
+    el(
+      'div',
+      { class: 'step-head' },
+      el('span', { class: `kind kind-${kind.id}`, text: kind.label }),
+      el('span', { class: 'gap', text: gap }),
+    ),
     el('h3', { text: subject(commit.message) }),
-    el('p', { class: 'meta' }, commitLink(t, commit.sha), ` · ${commit.author} · ${shortDate(commit.date)}`),
-    body && el('details', { class: 'body' }, el('summary', { text: 'Full commit message' }), el('pre', { text: body })),
+    links,
     renderNote(t, step),
+    renderCode(step, animate),
     renderEvidence(t, step),
-    code,
-    removed,
+    body && el('details', { class: 'body' }, el('summary', { text: 'Full commit message' }), el('pre', { text: body })),
   );
+}
+
+type Row = { kind: 'context' | 'add' | 'del' | 'skip'; text: string; line?: number };
+
+/** The commit's diff of the traced lines, as rows: what it removed sits where it was. */
+function diffRows(step: Step): Row[] {
+  const rows: Row[] = [];
+  let line = 0;
+  let inHunk = false;
+  for (const raw of step.diff.split('\n')) {
+    const hunk = /^@@ -\d+(?:,\d+)? \+(\d+)(?:,\d+)? @@/.exec(raw);
+    if (hunk) {
+      if (inHunk) rows.push({ kind: 'skip', text: '⋯' });
+      line = Number(hunk[1]);
+      inHunk = true;
+      continue;
+    }
+    if (!inHunk || raw.startsWith('\\')) continue;
+    if (raw.startsWith('+')) rows.push({ kind: 'add', text: raw.slice(1), line: line++ });
+    else if (raw.startsWith('-')) rows.push({ kind: 'del', text: raw.slice(1) });
+    else if (raw.startsWith(' ')) rows.push({ kind: 'context', text: raw.slice(1), line: line++ });
+  }
+  // Fall back to the snapshot when the diff does not line up with it.
+  const shown = rows.filter((r) => r.kind === 'add' || r.kind === 'context');
+  if (shown.length !== step.snapshot.split('\n').length) {
+    const added = new Set(step.addedLines);
+    return step.snapshot.split('\n').map((text, i) => ({ kind: added.has(i + 1) ? 'add' : 'context', text, line: step.startLine + i }));
+  }
+  return rows;
+}
+
+/**
+ * The lines at this commit. Stepping forward animates the change: removed lines flash red and
+ * fold away, then the added lines grow in. "Keep removed lines visible" leaves them in place.
+ */
+function renderCode(step: Step, animate: boolean): HTMLElement {
+  const keep = Boolean(view.showRemoved);
+  const rows = diffRows(step);
+  const removed = rows.filter((r) => r.kind === 'del').length;
+  const code = el(
+    'pre',
+    { class: `snapshot${animate ? ' animate' : ''}${keep ? ' keep-removed' : ''}`, attrs: { 'aria-label': 'The traced lines at this commit' } },
+    ...rows.map((row) =>
+      el(
+        'div',
+        { class: `line ${row.kind}` },
+        el('span', { class: 'ln', text: row.line === undefined ? '' : String(row.line), attrs: { 'aria-hidden': 'true' } }),
+        el('span', { class: 'mark', text: row.kind === 'add' ? '+' : row.kind === 'del' ? '−' : ' ', attrs: { 'aria-hidden': 'true' } }),
+        el('span', { class: 'text', text: row.text || ' ' }),
+      ),
+    ),
+  );
+  const added = rows.filter((r) => r.kind === 'add').length;
+  const summary = el('p', { class: 'churn-line', text: `${plural(added, 'line')} added, ${plural(removed, 'line')} removed by this commit` });
+  return el('div', { class: 'code' }, summary, code);
+}
+
+function plural(n: number, word: string): string {
+  return `${n} ${word}${n === 1 ? '' : 's'}`;
+}
+
+/** "3 years later", "2 months later", "same day". */
+function elapsed(fromIso: string, toIso: string): string {
+  const days = Math.round((Date.parse(toIso) - Date.parse(fromIso)) / 86_400_000);
+  if (days < 1) return 'same day';
+  if (days < 45) return `${plural(days, 'day')} later`;
+  if (days < 365) return `${plural(Math.round(days / 30), 'month')} later`;
+  const years = days / 365;
+  return `${years < 1.5 ? '1 year' : `${Math.round(years)} years`} later`;
+}
+
+type Kind = { id: 'revert' | 'fix' | 'feat' | 'perf' | 'refactor' | 'docs' | 'other'; label: string };
+
+/** What kind of change a commit is, from its subject (conventional commit prefix or "Revert"). */
+function kindOf(step: Step): Kind {
+  const s = subject(step.commit.message);
+  if (/^revert\b/i.test(s)) return { id: 'revert', label: 'revert' };
+  const type = /^(\w+)(?:\([^)]*\))?!?:/.exec(s)?.[1]?.toLowerCase();
+  switch (type) {
+    case 'fix':
+      return { id: 'fix', label: 'fix' };
+    case 'feat':
+      return { id: 'feat', label: 'feature' };
+    case 'perf':
+      return { id: 'perf', label: 'perf' };
+    case 'refactor':
+    case 'style':
+    case 'build':
+    case 'chore':
+      return { id: 'refactor', label: type === 'refactor' ? 'refactor' : type };
+    case 'docs':
+      return { id: 'docs', label: 'docs' };
+    default:
+      return { id: 'other', label: 'change' };
+  }
+}
+
+/** Steps that a verdict reason cites, to mark them on the track. */
+function citedSteps(t: Timeline): Set<number> {
+  const out = new Set<number>();
+  if (ai.status !== 'ready') return out;
+  for (const reason of t.story?.verdict.reasons ?? []) {
+    const i = stepForCitations(t, reason.citations);
+    if (i !== undefined) out.add(i);
+  }
+  return out;
+}
+
+/** GitHub's view of the file as it was at this commit, at the traced lines. */
+function fileAtCommit(t: Timeline, step: Step): string | undefined {
+  if (!t.github) return undefined;
+  const file = /^\+\+\+ b\/(.+)$/m.exec(step.diff)?.[1] ?? t.file;
+  const end = step.startLine + step.snapshot.split('\n').length - 1;
+  return `https://github.com/${t.github.owner}/${t.github.repo}/blob/${step.commit.sha}/${file}#L${step.startLine}-L${end}`;
 }
 
 function sameTrace(a: Timeline, b: Timeline): boolean {
@@ -281,7 +550,7 @@ function renderStory(t: Timeline, state: AiState): HTMLElement {
       const target = stepForCitations(t, reason.citations);
       const item = el(
         'li',
-        target === undefined ? {} : { class: 'jump', attrs: { tabindex: '0', title: 'Show the commit this cites' } },
+        target === undefined ? {} : { class: 'jump', attrs: { tabindex: '0', title: 'Show the commit this cites', 'data-step': String(target) } },
         el('span', { text: reason.text }),
         ' ',
         citationChips(t, reason),
@@ -289,10 +558,15 @@ function renderStory(t: Timeline, state: AiState): HTMLElement {
       if (target !== undefined) {
         item.addEventListener('click', (e) => {
           if ((e.target as HTMLElement).closest('a')) return; // chips open GitHub
+          stop();
           select(target);
+          document.getElementById('step')?.scrollIntoView({ block: 'nearest', behavior: reducedMotion.matches ? 'auto' : 'smooth' });
         });
         item.addEventListener('keydown', (e) => {
-          if (e.key === 'Enter') select(target);
+          if (e.key === 'Enter') {
+            stop();
+            select(target);
+          }
         });
       }
       return item;
@@ -317,9 +591,18 @@ function renderStory(t: Timeline, state: AiState): HTMLElement {
     .filter(Boolean)
     .join(' ');
 
+  // Folding hides the reasons and checks but keeps the verdict and summary pinned.
+  const fold = el('button', { class: 'fold', text: view.storyCollapsed ? 'Show reasons' : 'Hide reasons', attrs: { 'aria-expanded': String(!view.storyCollapsed) } });
+  fold.addEventListener('click', () => {
+    saveView({ storyCollapsed: !view.storyCollapsed });
+    document.getElementById('story')?.classList.toggle('collapsed', view.storyCollapsed);
+    fold.textContent = view.storyCollapsed ? 'Show reasons' : 'Hide reasons';
+    fold.setAttribute('aria-expanded', String(!view.storyCollapsed));
+  });
+
   return section(
-    `ready level-${story.verdict.level}`,
-    el('div', { class: 'verdict-head' }, el('span', { class: 'badge', text: LEVELS[story.verdict.level] })),
+    `ready level-${story.verdict.level}${view.storyCollapsed ? ' collapsed' : ''}`,
+    el('div', { class: 'verdict-head' }, el('span', { class: 'badge', text: LEVELS[story.verdict.level] }), fold),
     el('p', { class: 'summary-line', text: story.summary }),
     reasons,
     checks,
@@ -367,12 +650,15 @@ function renderEvidence(t: Timeline, step: Step): HTMLElement | undefined {
       ),
     ),
   );
+  // Open when the note rests on a comment, or the comments explain a revert.
+  const note = t.story?.steps.find((n) => n.commit === step.commit.sha);
+  const open = step.reviews.some((r) => r.on) || Boolean(note?.citations.some((c) => c.startsWith('review:')));
   const comments =
     step.reviews.length > 0 &&
     el(
       'details',
-      { class: 'reviews' },
-      el('summary', { text: `${step.reviews.length} comment${step.reviews.length === 1 ? '' : 's'} from the pull request${step.reviews.some((r) => r.on) ? 's' : ''}` }),
+      { class: 'reviews', attrs: open ? { open: '' } : {} },
+      el('summary', { text: `${plural(step.reviews.length, 'comment')} from GitHub` }),
       el(
         'ol',
         {},
@@ -417,9 +703,10 @@ function citationChips(t: Timeline, claim: { citations: string[]; flagged?: bool
     ...claim.citations.map((citation) => {
       const href = citationUrl(t, citation);
       const label = citationLabel(t, citation);
+      const cls = citation.startsWith('review:') ? 'chip review' : 'chip';
       return href
-        ? el('a', { class: 'chip', text: label, attrs: { href, title: citation } })
-        : el('span', { class: 'chip', text: label, attrs: { title: citation } });
+        ? el('a', { class: cls, text: label, attrs: { href, title: citation } })
+        : el('span', { class: cls, text: label, attrs: { title: citation } });
     }),
   );
 }
