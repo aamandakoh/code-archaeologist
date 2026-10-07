@@ -11,6 +11,7 @@ export function describeTimeline(timeline: Timeline, options: { snapshots?: bool
     `${timeline.steps.length} commits${first ? ` from ${first} to ${last}` : ''}, ${timeline.skipped} noise commits skipped`,
   );
   for (const warning of timeline.warnings) out.push(`warning: ${warning}`);
+  if (timeline.context) out.push(describeContext(timeline));
   out.push('');
 
   const notes = new Map(timeline.story?.steps.map((n) => [n.commit, n]));
@@ -19,6 +20,10 @@ export function describeTimeline(timeline: Timeline, options: { snapshots?: bool
     out.push(`${String(index + 1).padStart(2)}. ${step.commit.sha.slice(0, 7)} ${step.commit.date.slice(0, 10)} ${step.commit.author}`);
     out.push(`    ${subject}`);
     out.push(`    +${step.addedLines.length} -${step.removedLines.length} lines, starts at line ${step.startLine}`);
+    if (step.pr) out.push(`    PR #${step.pr.number}: ${step.pr.title}${step.reviews.length ? ` (${step.reviews.length} comments)` : ''}`);
+    for (const issue of step.issues) {
+      out.push(`    ${issue.relation === 'reverts' ? 'reverts' : 'fixes'} #${issue.number}: ${issue.title}`);
+    }
     const note = notes.get(step.commit.sha);
     if (note) out.push(`    > ${note.note} ${cite(note)}`);
     if (options.snapshots) {
@@ -49,6 +54,12 @@ export function describeStory(timeline: Timeline, story: Story): string {
   const reduced = story.reduced ? `, ${story.reduced} of ${timeline.steps.length} commits sent as subject only` : '';
   out.push(`(written by ${story.model}${reduced})`);
   return out.join('\n');
+}
+
+function describeContext(timeline: Timeline): string {
+  const c = timeline.context!;
+  const found = `GitHub: ${c.prs} pull requests, ${c.reviews} review comments, ${c.issues} linked issues${c.token ? '' : ' (no token)'}`;
+  return c.error ? `${found}. ${c.error}` : found;
 }
 
 function cite(claim: { citations: string[]; flagged?: boolean }): string {

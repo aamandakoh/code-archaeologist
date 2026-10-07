@@ -1,7 +1,9 @@
 import path from 'node:path';
 import { parseArgs } from 'node:util';
 import {
+  addGitHubContext,
   DEFAULT_MODEL,
+  GitHubCache,
   describeStory,
   describeTimeline,
   geminiClient,
@@ -19,6 +21,8 @@ Options:
   --json             Print the Timeline as JSON
   --snapshots        Show the traced lines at each commit (text output only)
   --keep-noise       Keep whitespace, formatting and license-only commits
+  --no-github        Skip pull requests, reviews and issues from GitHub. They are read
+                     when origin is on github.com, with GITHUB_TOKEN if set
   --story            Ask Gemini for per-commit notes, a summary and a risk verdict
                      (needs GEMINI_API_KEY)
   --model <id>       Gemini model for --story (default ${DEFAULT_MODEL})
@@ -33,6 +37,7 @@ async function main(argv: string[]): Promise<number> {
       json: { type: 'boolean', default: false },
       snapshots: { type: 'boolean', default: false },
       'keep-noise': { type: 'boolean', default: false },
+      'no-github': { type: 'boolean', default: false },
       story: { type: 'boolean', default: false },
       model: { type: 'string' },
       'cache-dir': { type: 'string' },
@@ -60,7 +65,7 @@ async function main(argv: string[]): Promise<number> {
 
   const cacheDir = values['cache-dir'] ? path.resolve(values['cache-dir']) : undefined;
   const progress = values.json ? undefined : (message: string) => console.error(`${message}…`);
-  const timeline = await trace({
+  let timeline = await trace({
     file,
     start,
     end,
@@ -68,6 +73,15 @@ async function main(argv: string[]): Promise<number> {
     cache: cacheDir ? new TimelineCache(path.join(cacheDir, 'timelines')) : undefined,
     onProgress: progress,
   });
+
+  if (!values['no-github'] && timeline.github) {
+    timeline = await addGitHubContext(timeline, {
+      token: process.env.GITHUB_TOKEN || process.env.GH_TOKEN || undefined,
+      cache: cacheDir ? new GitHubCache(path.join(cacheDir, 'github')) : undefined,
+      onProgress: progress,
+    });
+    if (timeline.context?.error && !values.json) console.error(`warning: ${timeline.context.error}`);
+  }
 
   if (values.story && apiKey) {
     timeline.story = await writeStory(timeline, {

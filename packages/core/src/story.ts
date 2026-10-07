@@ -1,9 +1,10 @@
 import { z } from 'zod';
-import type { Step, Story, Timeline } from './types.js';
+import type { LinkedIssue, Step, Story, Timeline } from './types.js';
+import { prFromMessage } from './github.js';
 import type { StoryCache } from './cache.js';
 
 /** Bump when the prompt or the Story shape changes, so cached stories are regenerated. */
-export const STORY_VERSION = 2;
+export const STORY_VERSION = 3;
 
 /** Limits on what goes to the model. Roughly 4 characters per token, so about 30k tokens. */
 export const LIMITS = {
@@ -12,7 +13,8 @@ export const LIMITS = {
   messageChars: 1_500,
   prBodyChars: 1_500,
   reviewChars: 500,
-  reviewsPerStep: 5,
+  reviewsPerStep: 6,
+  issueBodyChars: 400,
   /** Above this many commits, the middle ones are reduced to message subject plus PR title. */
   fullCommits: 25,
   /** How many of the oldest commits stay in full when the middle is reduced. */
@@ -22,12 +24,14 @@ export const LIMITS = {
 const SYSTEM = `You are Code Archaeologist. You explain how a piece of code evolved and whether it is safe to change, using only the evidence you are given.
 
 Rules:
-- Explain what changed and why, from the evidence only. If the evidence gives no reason for a change, say "No reason recorded." and cite the commit. Never guess a motive. A revert whose message only names the reverted commit has no recorded reason.
-- Every note and every verdict reason cites at least one id exactly as written in the evidence, such as "commit:b35fa73" or "pr:49659". When a commit names a pull request, review or issue, cite that too. Never invent ids.
+- Explain what changed and why, from the evidence only: the commit message, its pull request description, review comments, PR discussion and linked issues. If none of them gives a reason for a change, say "No reason recorded." and cite the commit. Never guess a motive.
+- For a revert, look for the reason in the review comments, especially those marked as posted on the reverted PR. If there is none, a revert whose message only names the reverted commit has no recorded reason.
+- When the reason comes from a review comment or an issue, say who raised it or what broke in plain words, and cite that review or issue id.
+- Every note and every verdict reason cites at least one id exactly as written in the evidence, such as "commit:b35fa73", "pr:49659", "review:b35fa73-2" or "issue:31462". Cite the PR, review or issue the claim rests on, not just the commit. Never invent ids.
 - Write one note per commit, in the same order as the evidence, using its short hash in "commit". Commits marked [reduced] get a short note from their subject alone.
 - Notes are at most 2 sentences, plain words, no markdown. Ids go in "citations", not in the text.
 - "summary" is one sentence on how these lines got to where they are today and what that means for someone about to change them. Do not just describe what the code does.
-- The verdict level is low, medium or high risk to change. Raise it for security fixes, reverts, a change made and then undone, tests added alongside a change, or code labelled as taken from another library.
+- The verdict level is low, medium or high risk to change. Raise it for security fixes, security review sign-offs, reverts, a change made and then undone, tests added alongside a change, breakage reported in review, or code labelled as taken from another library.
 - Give 3 to 5 verdict reasons, most important first, each citing the specific commits it rests on. Name concrete events (a fix that was reverted, a behaviour that was loosened), not general statements.
 - Give 2 to 4 concrete "checks" to do before changing the code.`;
 
@@ -144,9 +148,16 @@ function renderFull(step: Step, limits: typeof LIMITS): string {
     if (step.pr.body.trim()) out.push(`PR description: ${clip(step.pr.body.trim(), limits.prBodyChars)}`);
   }
   step.reviews.slice(0, limits.reviewsPerStep).forEach((review, i) => {
-    out.push(`Review review:${short(c.sha)}-${i + 1} by ${review.author}: ${clip(review.body.trim(), limits.reviewChars)}`);
+    const where = [review.on ? `on reverted PR pr:${review.on}` : '', review.path ? `on ${review.path}` : '', review.date?.slice(0, 10) ?? '']
+      .filter(Boolean)
+      .join(', ');
+    out.push(`Review review:${short(c.sha)}-${i + 1} by ${review.author}${where ? ` (${where})` : ''}: ${oneLine(clip(review.body.trim(), limits.reviewChars))}`);
   });
-  for (const issue of step.issues) out.push(`Issue issue:${issue.number}: ${issue.title}`);
+  for (const issue of step.issues) {
+    const verb = issue.relation === 'reverts' ? 'Reverts' : issue.kind === 'pr' ? 'Linked PR' : 'Fixes issue';
+    out.push(`${verb} ${issueId(issue)}: ${issue.title}`);
+    if (issue.body) out.push(`  ${oneLine(clip(issue.body, limits.issueBodyChars))}`);
+  }
   out.push('Diff of the traced lines:', '```diff', trimDiff(step.diff, limits.diffLines), '```');
   return out.join('\n');
 }
@@ -163,16 +174,27 @@ function evidenceIds(step: Step): string[] {
   const ids = [`commit:${short(step.commit.sha)}`];
   if (step.pr) ids.push(`pr:${step.pr.number}`);
   for (const m of step.commit.message.matchAll(/(?:^|[\s(])#(\d+)\b/g)) ids.push(`pr:${m[1]}`);
-  step.reviews.forEach((_, i) => ids.push(`review:${short(step.commit.sha)}-${i + 1}`));
-  for (const issue of step.issues) ids.push(`issue:${issue.number}`);
+  step.reviews.forEach((review, i) => {
+    ids.push(`review:${short(step.commit.sha)}-${i + 1}`);
+    if (review.on) ids.push(`pr:${review.on}`);
+  });
+  for (const issue of step.issues) ids.push(issueId(issue));
   return ids;
 }
 
-/** The PR that merged a commit: from GitHub when known, else the "(#123)" GitHub puts after a squash-merged subject. */
+/** PRs are cited as "pr:N", issues as "issue:N". */
+function issueId(issue: LinkedIssue): string {
+  return `${issue.kind === 'pr' ? 'pr' : 'issue'}:${issue.number}`;
+}
+
+function oneLine(text: string): string {
+  return text.replace(/\s*\n\s*/g, ' / ');
+}
+
+/** The PR that merged a commit: from GitHub when known, else the number the merge tool wrote into the message. */
 function mergedPr(step: Step): string | undefined {
-  if (step.pr) return `pr:${step.pr.number}`;
-  const m = /\(#(\d+)\)\s*$/.exec(step.commit.message.split('\n')[0] ?? '');
-  return m ? `pr:${m[1]}` : undefined;
+  const n = step.pr?.number ?? prFromMessage(step.commit.message);
+  return n === undefined ? undefined : `pr:${n}`;
 }
 
 /** Keeps only the hunk lines of a diff (no file headers), at most `max` lines. */
@@ -212,8 +234,12 @@ export function parseStory(text: string, timeline: Timeline, prompt: StoryPrompt
       const sha = fullSha(ref);
       return sha ? `commit:${short(sha)}` : undefined;
     }
-    const id = `${kind}:${ref.trim().replace(/^#/, '')}`;
-    return known.has(id) ? id : undefined;
+    const n = ref.trim().replace(/^#/, '');
+    const id = `${kind}:${n}`;
+    if (known.has(id)) return id;
+    // GitHub numbers issues and PRs together, so the model sometimes mixes the two up.
+    const other = kind === 'issue' ? `pr:${n}` : kind === 'pr' ? `issue:${n}` : undefined;
+    return other && known.has(other) ? other : undefined;
   };
   const check = (citations: string[]) => {
     const kept = [...new Set(citations.map(normalize).filter((c): c is string => c !== undefined))];
@@ -331,7 +357,10 @@ export function geminiClient(options: GeminiOptions): ModelClient {
           attempt--;
           continue;
         }
-        const retryable = response.status === 429 || response.status >= 500;
+        // A used-up daily quota says "retry in 9h23m"; waiting a few seconds won't help.
+        const wait = /retry in ((?:\d+h)?(?:\d+m)?[\d.]*s?)/i.exec(detail)?.[1];
+        const daily = response.status === 429 && (/per ?day|daily/i.test(detail) || /\d+h/.test(wait ?? ''));
+        const retryable = (response.status === 429 && !daily) || response.status >= 500;
         if (retryable && attempt < retries) {
           await sleep(2_000 * 2 ** attempt, signal);
           continue;
@@ -341,10 +370,13 @@ export function geminiClient(options: GeminiOptions): ModelClient {
             ? ' Check the Gemini API key.'
             : response.status === 404
               ? ' Check the model name in the codeArchaeologist.model setting.'
-              : response.status === 429
-                ? ' The free tier is rate limited; try again in a minute.'
-                : '';
-        throw new StoryError(`Gemini (${model}) answered ${response.status}: ${detail}.${hint}`);
+              : daily
+                ? ` The free tier's daily quota for ${model} is used up${wait ? `; it resets in ${wait.replace(/\.\d+s$/, 's')}` : ''}. Pick another model in the codeArchaeologist.model setting, or try later.`
+                : response.status === 429
+                  ? ' The free tier is rate limited; try again in a minute.'
+                  : '';
+        const first = (daily ? detail.split('\n')[0]! : detail).trim().replace(/\.+$/, '');
+        throw new StoryError(`Gemini (${model}) answered ${response.status}: ${first}.${hint}`);
       }
     },
   };

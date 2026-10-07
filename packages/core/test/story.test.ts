@@ -145,6 +145,14 @@ describe('geminiClient', () => {
     }
   });
 
+  test('does not retry a used-up daily quota', async () => {
+    const message =
+      'You exceeded your current quota, please check your plan and billing details.\n* Quota exceeded for metric: generate_content_free_tier_requests, limit: 20, model: gemini-3.5-flash\nPlease retry in 9h23m44.781424344s.';
+    const fetch = vi.fn(async () => new Response(JSON.stringify({ error: { message } }), { status: 429 }));
+    await expect(geminiClient({ apiKey: 'k', fetch }).generate(prompt)).rejects.toThrow(/daily quota for gemini-3.5-flash is used up; it resets in 9h23m44s/);
+    expect(fetch).toHaveBeenCalledTimes(1);
+  });
+
   test('explains a wrong model name', async () => {
     const fetch = vi.fn(async () => new Response(JSON.stringify({ error: { message: 'not found' } }), { status: 404 }));
     await expect(geminiClient({ apiKey: 'k', model: 'nope', fetch }).generate(prompt)).rejects.toThrow(/404.*model name/);

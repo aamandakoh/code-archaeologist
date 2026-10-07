@@ -1,6 +1,8 @@
 import * as vscode from 'vscode';
 import {
+  addGitHubContext,
   DEFAULT_MODEL,
+  GitHubCache,
   geminiClient,
   StoryCache,
   TimelineCache,
@@ -12,14 +14,19 @@ import { ArchaeologistPanel } from './panel';
 import type { AiState } from './messages';
 
 const KEY_SECRET = 'codeArchaeologist.geminiApiKey';
+const GITHUB_SECRET = 'codeArchaeologist.githubToken';
 
 export function activate(context: vscode.ExtensionContext): void {
   const output = vscode.window.createOutputChannel('Code Archaeologist');
   const timelines = new TimelineCache(vscode.Uri.joinPath(context.globalStorageUri, 'timelines').fsPath);
   const stories = new StoryCache(vscode.Uri.joinPath(context.globalStorageUri, 'stories').fsPath);
+  const github = new GitHubCache(vscode.Uri.joinPath(context.globalStorageUri, 'github').fsPath);
 
-  /** The timeline on screen, without its story, so the story can be retried. */
-  let shown: { timeline: Timeline; panel: ArchaeologistPanel } | undefined;
+  /**
+   * The timeline on screen, without its story, so the story can be retried. `raw` is the trace
+   * before GitHub context, so a new token can read it again.
+   */
+  let shown: { timeline: Timeline; raw: Timeline; panel: ArchaeologistPanel } | undefined;
   /** Cancels the story request for a timeline that is no longer on screen. */
   let pending: AbortController | undefined;
 
@@ -27,9 +34,42 @@ export function activate(context: vscode.ExtensionContext): void {
     return (await context.secrets.get(KEY_SECRET)) || process.env.GEMINI_API_KEY || undefined;
   }
 
-  async function tellStory(timeline: Timeline, panel: ArchaeologistPanel): Promise<void> {
+  async function githubToken(): Promise<string | undefined> {
+    return (await context.secrets.get(GITHUB_SECRET)) || process.env.GITHUB_TOKEN || undefined;
+  }
+
+  /** Reads PRs, reviews and issues for the raw trace, then writes the story from all of it. */
+  async function explain(raw: Timeline, panel: ArchaeologistPanel): Promise<void> {
     pending?.abort();
-    shown = { timeline, panel };
+    shown = { timeline: raw, raw, panel };
+    if (!raw.github || raw.steps.length === 0) return tellStory(raw, raw, panel);
+
+    const controller = new AbortController();
+    pending = controller;
+    panel.post({ type: 'timeline', timeline: raw, ai: { status: 'reading', message: 'Reading pull requests…' } });
+    let timeline: Timeline;
+    try {
+      timeline = await addGitHubContext(raw, {
+        token: await githubToken(),
+        cache: github,
+        signal: controller.signal,
+        onProgress: (message) => panel.post({ type: 'progress', message: `${message}…` }),
+      });
+    } catch (error) {
+      if (controller.signal.aborted) return;
+      throw error;
+    } finally {
+      if (pending === controller) pending = undefined;
+    }
+    if (controller.signal.aborted) return;
+    const c = timeline.context;
+    if (c) output.appendLine(`GitHub for ${raw.file}: ${c.prs} PRs, ${c.reviews} comments, ${c.issues} issues${c.error ? `; ${c.error}` : ''}`);
+    await tellStory(timeline, raw, panel);
+  }
+
+  async function tellStory(timeline: Timeline, raw: Timeline, panel: ArchaeologistPanel): Promise<void> {
+    pending?.abort();
+    shown = { timeline, raw, panel };
     const post = (ai: AiState, story = timeline.story) => panel.post({ type: 'timeline', timeline: { ...timeline, story }, ai });
 
     const key = await apiKey();
@@ -75,18 +115,40 @@ export function activate(context: vscode.ExtensionContext): void {
       await context.secrets.delete(KEY_SECRET);
       void vscode.window.showInformationMessage('Code Archaeologist: Gemini API key removed.');
     }
-    if (shown && !shown.timeline.story) void tellStory(shown.timeline, shown.panel);
+    if (shown && !shown.timeline.story) void tellStory(shown.timeline, shown.raw, shown.panel);
+  }
+
+  async function setGitHubToken(): Promise<void> {
+    const token = await vscode.window.showInputBox({
+      title: 'GitHub token',
+      prompt:
+        'Paste a fine-grained GitHub token with read-only access to public repositories (github.com/settings/personal-access-tokens). It is kept in VS Code secret storage.',
+      password: true,
+      ignoreFocusOut: true,
+    });
+    if (token === undefined) return;
+    if (token.trim()) {
+      await context.secrets.store(GITHUB_SECRET, token.trim());
+      void vscode.window.showInformationMessage('Code Archaeologist: GitHub token saved.');
+    } else {
+      await context.secrets.delete(GITHUB_SECRET);
+      void vscode.window.showInformationMessage('Code Archaeologist: GitHub token removed.');
+    }
+    // Read GitHub again for the lines on screen, then rewrite the story with what it found.
+    if (shown) void explain(shown.raw, shown.panel);
   }
 
   ArchaeologistPanel.onAction = (message) => {
     if (message.type === 'set-key') void setApiKey();
-    if (message.type === 'retry-story' && shown) void tellStory(shown.timeline, shown.panel);
+    if (message.type === 'set-github-token') void setGitHubToken();
+    if (message.type === 'retry-story' && shown) void tellStory(shown.timeline, shown.raw, shown.panel);
   };
 
   context.subscriptions.push(
     output,
     { dispose: () => pending?.abort() },
     vscode.commands.registerCommand('codeArchaeologist.setApiKey', setApiKey),
+    vscode.commands.registerCommand('codeArchaeologist.setGitHubToken', setGitHubToken),
     vscode.commands.registerCommand('codeArchaeologist.trace', async () => {
       const editor = vscode.window.activeTextEditor;
       if (!editor) {
@@ -125,8 +187,8 @@ export function activate(context: vscode.ExtensionContext): void {
         panel.post({ type: 'error', message });
         return;
       }
-      // The raw timeline shows at once; the story fills in when the model answers.
-      await tellStory(timeline, panel);
+      // The raw timeline shows at once; GitHub context and then the story fill in after it.
+      await explain(timeline, panel);
     }),
   );
 }

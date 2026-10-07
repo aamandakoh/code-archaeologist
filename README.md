@@ -11,8 +11,8 @@ cited "safe to change?" verdict pinned at the top.
 | M0 | Workspaces, build, tests, extension skeleton | Done |
 | M1 | `git log -L` trace, noise filter, CLI, raw history panel | Done |
 | M2 | AI notes, summary and risk verdict (Gemini) | Done |
-| M3 | GitHub PRs, review comments and issues | Next |
-| M4 | Time-lapse UI polish | |
+| M3 | GitHub PRs, review comments and issues | Done |
+| M4 | Time-lapse UI polish | Next |
 | M5 | Demo recording | |
 
 ## Layout
@@ -40,27 +40,52 @@ window, open a file in any git repository, select some lines, right-click and ch
 **Why is this here?** (or run **Code Archaeologist: Why is this here?** from the command palette).
 
 Install it in your normal VS Code instead: `npm run package -w packages/extension`, then
-**Extensions: Install from VSIX…** and pick `packages/extension/code-archaeologist-0.2.0.vsix`.
+**Extensions: Install from VSIX…** and pick `packages/extension/code-archaeologist-0.3.0.vsix`.
 
 ## CLI
 
 ```sh
 npm run build
-node packages/cli/dist/cli.js trace <file> <start> <end> [--json] [--snapshots] [--keep-noise] [--story] [--model <id>] [--cache-dir <dir>]
+node packages/cli/dist/cli.js trace <file> <start> <end> [--json] [--snapshots] [--keep-noise] [--no-github] [--story] [--model <id>] [--cache-dir <dir>]
 ```
 
 Lines are 1-based and inclusive, matched against HEAD. `--story` asks Gemini for the summary,
-per-commit notes and verdict and needs `GEMINI_API_KEY`. With `--cache-dir`, a rerun of the same
-lines at the same HEAD reuses both the trace and the story, so recording a demo never waits on
-the model.
+per-commit notes and verdict and needs `GEMINI_API_KEY`. When `origin` is on github.com, each
+commit's pull request, review comments and linked issues are read too, with `GITHUB_TOKEN` if set
+(`--no-github` skips this). With `--cache-dir`, a rerun of the same lines at the same HEAD reuses
+the trace, the GitHub responses and the story, so recording a demo never waits on the network.
+
+## GitHub context
+
+`packages/core/src/github.ts` adds the "why" that commit messages leave out:
+
+- **Pull request:** from the message when the merge tool wrote it (`(#123)` after the subject,
+  Angular's `PR Close #123`, a merge commit), else GitHub's "pull requests for a commit"
+  endpoint. Then its description (PR template boilerplate stripped), line comments on the traced
+  file, review summaries and the conversation, bots left out.
+- **Linked issues:** `Fixes #n`, `Closes #n`, `Resolves #n` in the commit or PR.
+- **Reverts:** `Reverts #n` in the PR, or `This reverts commit <sha>` for a commit in the
+  timeline. The comments on the reverted PR that mention the revert are attached to the revert,
+  because that is usually where the reason is.
+
+All of it goes into the prompt with citable ids (`pr:67692`, `review:fc9b2d6-1`, `issue:31462`),
+and the panel shows the PR, issues and comments under each commit. Each PR costs four requests,
+so the 18-commit demo trace makes about 60 the first time and none after that (responses are
+cached for a week).
+
+Without a token GitHub allows 60 requests an hour, about one trace. Use a fine-grained token with read-only access
+to public repositories: **Code Archaeologist: Set GitHub token** in VS Code (kept in secret
+storage), or `GITHUB_TOKEN` for the CLI. If GitHub fails (rate limit, bad token), the panel says
+so and the story is written from what was found.
 
 ## AI story
 
 One Gemini call per trace (`packages/core/src/story.ts`), default model `gemini-3.5-flash` on
 Google AI Studio's free tier:
 
-- **Input:** the lines today, then per commit its id, date, author, message and the diff of the
-  traced lines (trimmed to 60 lines). Above 25 commits, or about 30k tokens, middle commits are
+- **Input:** the lines today, then per commit its id, date, author, message, its PR's title and
+  description, up to 6 review comments, linked issues and the diff of the traced lines (trimmed
+  to 60 lines). Above 25 commits, or about 30k tokens, middle commits are
   sent as their subject line only.
 - **Output:** JSON with a one-sentence summary, a note per commit and a low/medium/high verdict
   with 3 to 5 reasons and things to check, validated with zod.

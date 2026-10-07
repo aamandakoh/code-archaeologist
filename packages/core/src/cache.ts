@@ -67,3 +67,35 @@ export class StoryCache {
     await rename(temp, target);
   }
 }
+
+/**
+ * GitHub API responses on disk, keyed by request path. `null` records a 404. Entries older than
+ * `maxAgeMs` are refetched, so new review comments show up eventually.
+ */
+export class GitHubCache {
+  constructor(
+    private readonly dir: string,
+    private readonly maxAgeMs = 7 * 24 * 60 * 60 * 1000,
+  ) {}
+
+  private pathFor(route: string): string {
+    return path.join(this.dir, `${createHash('sha256').update(route).digest('hex').slice(0, 32)}.json`);
+  }
+
+  async get(route: string): Promise<{ data: unknown } | undefined> {
+    try {
+      const entry = JSON.parse(await readFile(this.pathFor(route), 'utf8')) as { at: number; data: unknown };
+      return Date.now() - entry.at <= this.maxAgeMs ? { data: entry.data } : undefined;
+    } catch {
+      return undefined;
+    }
+  }
+
+  async set(route: string, data: unknown): Promise<void> {
+    const target = this.pathFor(route);
+    await mkdir(this.dir, { recursive: true });
+    const temp = `${target}.${process.pid}.${Math.random().toString(36).slice(2)}.tmp`;
+    await writeFile(temp, JSON.stringify({ at: Date.now(), data }));
+    await rename(temp, target);
+  }
+}

@@ -216,6 +216,7 @@ function renderStep(t: Timeline, step: Step): HTMLElement {
     el('p', { class: 'meta' }, commitLink(t, commit.sha), ` · ${commit.author} · ${shortDate(commit.date)}`),
     body && el('details', { class: 'body' }, el('summary', { text: 'Full commit message' }), el('pre', { text: body })),
     renderNote(t, step),
+    renderEvidence(t, step),
     code,
     removed,
   );
@@ -245,6 +246,11 @@ function renderStory(t: Timeline, state: AiState): HTMLElement {
   const story = t.story;
   if (!story || state.status !== 'ready') {
     switch (state.status) {
+      case 'reading':
+        return section(
+          'pending',
+          el('p', { class: 'status' }, el('span', { class: 'spinner', attrs: { 'aria-hidden': 'true' } }), el('span', { text: state.message, attrs: { id: 'progress' } })),
+        );
       case 'writing':
         return section(
           'pending',
@@ -255,6 +261,7 @@ function renderStory(t: Timeline, state: AiState): HTMLElement {
           'pending',
           el('p', { text: 'Add a Gemini API key to get a summary, a note on every commit and a "safe to change?" verdict. The raw history is below.' }),
           button('Add Gemini API key', { type: 'set-key' }),
+          githubNotice(t),
         );
       case 'error':
         return section(
@@ -303,7 +310,7 @@ function renderStory(t: Timeline, state: AiState): HTMLElement {
 
   const flagged = story.steps.filter((s) => s.flagged).length + story.verdict.reasons.filter((r) => r.flagged).length;
   const footer = [
-    `Written by ${story.model} from commit messages and diffs.`,
+    `Written by ${story.model} from ${evidenceSources(t)}.`,
     story.reduced > 0 ? `${story.reduced} older commits were sent as their subject line only.` : '',
     flagged > 0 ? `${flagged} claim${flagged === 1 ? '' : 's'} cited nothing in the evidence and ${flagged === 1 ? 'is' : 'are'} marked unverified.` : '',
   ]
@@ -317,11 +324,80 @@ function renderStory(t: Timeline, state: AiState): HTMLElement {
     reasons,
     checks,
     el('p', { class: 'fineprint', text: footer }),
+    githubNotice(t),
   );
 }
 
+/** "commit messages and diffs", plus what GitHub added. */
+function evidenceSources(t: Timeline): string {
+  const c = t.context;
+  if (!c || c.prs === 0) return 'commit messages and diffs';
+  const parts = [`${c.prs} pull request${c.prs === 1 ? '' : 's'}`];
+  if (c.reviews > 0) parts.push(`${c.reviews} review comment${c.reviews === 1 ? '' : 's'}`);
+  if (c.issues > 0) parts.push(`${c.issues} linked issue${c.issues === 1 ? '' : 's'}`);
+  return `commit messages, diffs, ${parts.join(', ')}`;
+}
+
+/** Says when GitHub context is missing or partial, with a button to add a token when that would help. */
+function githubNotice(t: Timeline): HTMLElement | undefined {
+  const c = t.context;
+  if (!c?.error) return undefined;
+  const notice = el('p', { class: 'github-notice', text: `Pull requests and reviews may be missing. ${c.error}` });
+  if (!c.token) {
+    const b = el('button', { class: 'action secondary', text: 'Add GitHub token' });
+    b.addEventListener('click', () => vscode.postMessage({ type: 'set-github-token' }));
+    notice.append(' ', b);
+  }
+  return notice;
+}
+
+/** The PR, linked issues and review discussion behind one commit. */
+function renderEvidence(t: Timeline, step: Step): HTMLElement | undefined {
+  if (!step.pr && step.issues.length === 0 && step.reviews.length === 0) return undefined;
+  const links = el(
+    'p',
+    { class: 'evidence-links' },
+    step.pr && el('a', { class: 'pr', attrs: { href: step.pr.url, title: 'Pull request' } }, el('span', { class: 'chip', text: `#${step.pr.number}` }), ` ${step.pr.title}`),
+    ...step.issues.map((issue) =>
+      el(
+        'a',
+        { class: 'issue', attrs: { href: issue.url } },
+        el('span', { class: 'chip', text: `${issue.relation === 'reverts' ? 'reverts' : 'fixes'} #${issue.number}` }),
+        ` ${issue.title}`,
+      ),
+    ),
+  );
+  const comments =
+    step.reviews.length > 0 &&
+    el(
+      'details',
+      { class: 'reviews' },
+      el('summary', { text: `${step.reviews.length} comment${step.reviews.length === 1 ? '' : 's'} from the pull request${step.reviews.some((r) => r.on) ? 's' : ''}` }),
+      el(
+        'ol',
+        {},
+        ...step.reviews.map((review, i) =>
+          el(
+            'li',
+            { attrs: { id: `review-${step.commit.sha.slice(0, 7)}-${i + 1}` } },
+            el(
+              'p',
+              { class: 'meta' },
+              el('a', { text: review.author, attrs: { href: review.url } }),
+              review.date ? ` · ${shortDate(review.date)}` : '',
+              review.on ? ` · on reverted #${review.on}` : '',
+              review.path ? ` · on ${review.path.split('/').pop()}` : '',
+            ),
+            el('blockquote', { text: review.body }),
+          ),
+        ),
+      ),
+    );
+  return el('div', { class: 'evidence' }, links, comments);
+}
+
 function renderNote(t: Timeline, step: Step): HTMLElement {
-  if (ai.status === 'writing') return el('p', { class: 'note pending', text: 'Writing the note for this commit…' });
+  if (ai.status === 'writing' || ai.status === 'reading') return el('p', { class: 'note pending', text: 'Writing the note for this commit…' });
   const note = t.story?.steps.find((n) => n.commit === step.commit.sha);
   if (!note) {
     const text = t.story ? 'No note for this commit.' : 'The AI note for this commit appears here once the story is written.';
@@ -340,12 +416,23 @@ function citationChips(t: Timeline, claim: { citations: string[]; flagged?: bool
     { class: 'chips' },
     ...claim.citations.map((citation) => {
       const href = citationUrl(t, citation);
-      const label = citation.replace(/^commit:/, '').replace(/^pr:/, '#').replace(/^issue:/, '#');
+      const label = citationLabel(t, citation);
       return href
         ? el('a', { class: 'chip', text: label, attrs: { href, title: citation } })
         : el('span', { class: 'chip', text: label, attrs: { title: citation } });
     }),
   );
+}
+
+/** "b35fa73", "#49659", or "atscott's comment" for a review. */
+function citationLabel(t: Timeline, citation: string): string {
+  const [kind, ref = ''] = citation.split(':');
+  if (kind === 'review') {
+    const [sha, n] = ref.split('-');
+    const author = t.steps.find((s) => s.commit.sha.startsWith(sha ?? ''))?.reviews[Number(n) - 1]?.author;
+    return author ? `${author}'s comment` : 'comment';
+  }
+  return kind === 'pr' || kind === 'issue' ? `#${ref}` : ref;
 }
 
 function citationUrl(t: Timeline, citation: string): string | undefined {

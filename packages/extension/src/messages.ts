@@ -3,6 +3,7 @@ import type { Timeline } from '@code-archaeologist/core/src/types.js';
 
 /** Where the AI story is for the timeline on screen. The story itself is `timeline.story`. */
 export type AiState =
+  | { status: 'reading'; message: string }
   | { status: 'writing' }
   | { status: 'ready' }
   | { status: 'no-key' }
@@ -17,4 +18,4 @@ export type ToWebview =
   | { type: 'error'; message: string };
 
 /** Webview → extension. */
-export type FromWebview = { type: 'ready' } | { type: 'set-key' } | { type: 'retry-story' };
+export type FromWebview = { type: 'ready' } | { type: 'set-key' } | { type: 'set-github-token' } | { type: 'retry-story' };

@@ -16,6 +16,8 @@ export type Timeline = {
   github?: { owner: string; repo: string };
   /** Things the reader should know, e.g. uncommitted edits in the file. */
   warnings: string[];
+  /** PRs, reviews and issues found on GitHub (milestone 3). Absent when not looked up. */
+  context?: GitHubContext;
   /** AI output (milestone 2). Absent when no key is configured. */
   story?: Story;
 };
@@ -40,10 +42,50 @@ export type Step = {
   removedLines: string[];
   /** The raw diff hunk(s) for the traced lines, used later as model input. */
   diff: string;
-  /** Filled in by milestone 3. */
+  /** The pull request that merged this commit, from GitHub (milestone 3). */
   pr?: { number: number; title: string; body: string; url: string };
-  reviews: { author: string; body: string; url: string }[];
-  issues: { number: number; title: string; url: string }[];
+  /**
+   * Review comments on this file, review summaries and conversation comments, oldest first.
+   * `on` is set when the comment was posted on another PR, e.g. the PR a revert undid.
+   */
+  reviews: Review[];
+  /** Issues and pull requests the commit or its PR names as fixed, closed or reverted. */
+  issues: LinkedIssue[];
+};
+
+export type Review = {
+  author: string;
+  body: string;
+  url: string;
+  /** ISO 8601. */
+  date?: string;
+  /** A comment on a specific line of the file, rather than on the PR as a whole. */
+  path?: string;
+  /** The PR this was posted on, when it is not the step's own PR. */
+  on?: number;
+};
+
+export type LinkedIssue = {
+  number: number;
+  title: string;
+  url: string;
+  /** Opening text, trimmed. */
+  body?: string;
+  /** "pr" for a pull request, such as the one a revert undid. */
+  kind?: 'issue' | 'pr';
+  /** How the commit or PR refers to it. */
+  relation?: 'fixes' | 'reverts';
+};
+
+/** What milestone 3 found on GitHub for a timeline. */
+export type GitHubContext = {
+  /** Whether a token was used. Without one GitHub allows 60 requests an hour. */
+  token: boolean;
+  prs: number;
+  reviews: number;
+  issues: number;
+  /** Set when some or all of the context could not be read. The timeline is still usable. */
+  error?: string;
 };
 
 export type NoiseReason = 'whitespace' | 'formatting' | 'license-header';
