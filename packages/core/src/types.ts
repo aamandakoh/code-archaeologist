@@ -53,13 +53,25 @@ export type NoiseCommit = {
   reason: NoiseReason;
 };
 
-/** Placeholder for milestone 2; validated with zod there. */
+/** AI output (milestone 2), validated and citation-checked by `parseStory`. */
 export type Story = {
+  /** One sentence about the whole history. */
   summary: string;
-  steps: { commit: string; note: string; citations: string[] }[];
+  /** One note per step that got one, in timeline order. `commit` is the full SHA. */
+  steps: { commit: string; note: string; citations: string[]; flagged?: boolean }[];
   verdict: {
     level: 'low' | 'medium' | 'high';
-    reasons: { text: string; citations: string[] }[];
+    reasons: { text: string; citations: string[]; flagged?: boolean }[];
     checks: string[];
   };
+  /** The model that wrote it. */
+  model: string;
+  /** Commits sent to the model as subject only, because the history was long. */
+  reduced: number;
 };
+
+/**
+ * Citations look like "commit:b35fa73", "pr:49659", "issue:123" or "review:b35fa73-1".
+ * `flagged` means none of the model's citations matched the evidence, so the claim is unverified.
+ */
+export type Citation = string;

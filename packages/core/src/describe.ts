@@ -1,4 +1,4 @@
-import type { Timeline } from './types.js';
+import type { Story, Timeline } from './types.js';
 
 /** Plain-text rendering of a timeline, for the CLI and for logs. */
 export function describeTimeline(timeline: Timeline, options: { snapshots?: boolean } = {}): string {
@@ -13,11 +13,14 @@ export function describeTimeline(timeline: Timeline, options: { snapshots?: bool
   for (const warning of timeline.warnings) out.push(`warning: ${warning}`);
   out.push('');
 
+  const notes = new Map(timeline.story?.steps.map((n) => [n.commit, n]));
   timeline.steps.forEach((step, index) => {
     const subject = step.commit.message.split('\n')[0] ?? '';
     out.push(`${String(index + 1).padStart(2)}. ${step.commit.sha.slice(0, 7)} ${step.commit.date.slice(0, 10)} ${step.commit.author}`);
     out.push(`    ${subject}`);
     out.push(`    +${step.addedLines.length} -${step.removedLines.length} lines, starts at line ${step.startLine}`);
+    const note = notes.get(step.commit.sha);
+    if (note) out.push(`    > ${note.note} ${cite(note)}`);
     if (options.snapshots) {
       const added = new Set(step.addedLines);
       step.snapshot.split('\n').forEach((line, i) => {
@@ -33,4 +36,21 @@ export function describeTimeline(timeline: Timeline, options: { snapshots?: bool
     }
   }
   return out.join('\n');
+}
+
+/** Plain-text rendering of the summary and verdict. */
+export function describeStory(timeline: Timeline, story: Story): string {
+  const out = [story.summary, '', `Risk to change: ${story.verdict.level.toUpperCase()}`];
+  for (const reason of story.verdict.reasons) out.push(`  - ${reason.text} ${cite(reason)}`);
+  if (story.verdict.checks.length > 0) {
+    out.push('Check before changing:');
+    for (const check of story.verdict.checks) out.push(`  - ${check}`);
+  }
+  const reduced = story.reduced ? `, ${story.reduced} of ${timeline.steps.length} commits sent as subject only` : '';
+  out.push(`(written by ${story.model}${reduced})`);
+  return out.join('\n');
+}
+
+function cite(claim: { citations: string[]; flagged?: boolean }): string {
+  return claim.flagged ? '[unverified: no matching evidence]' : `[${claim.citations.join(', ')}]`;
 }

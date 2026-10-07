@@ -10,6 +10,9 @@ export class ArchaeologistPanel {
   private last: ToWebview | undefined;
   private lastProgress: ToWebview | undefined;
 
+  /** Handles what the page asks for besides 'ready', e.g. adding an API key. */
+  static onAction: ((message: Exclude<FromWebview, { type: 'ready' }>) => void) | undefined;
+
   static show(extensionUri: vscode.Uri): ArchaeologistPanel {
     if (ArchaeologistPanel.current) {
       ArchaeologistPanel.current.panel.reveal(vscode.ViewColumn.Beside, true);
@@ -39,12 +42,15 @@ export class ArchaeologistPanel {
         // Also fires when a hidden panel is shown again and its page reloads.
         this.ready = true;
         for (const m of [this.last, this.lastProgress]) if (m) void panel.webview.postMessage(m);
+      } else {
+        ArchaeologistPanel.onAction?.(message);
       }
     });
     panel.onDidChangeViewState(() => {
       if (!panel.visible) this.ready = false;
     });
     panel.onDidDispose(() => {
+      this.ready = false;
       ArchaeologistPanel.current = undefined;
     });
   }

@@ -49,6 +49,39 @@ summary { cursor: pointer; color: var(--muted); }
 .story p { margin: 0; }
 .pending { color: var(--muted); }
 .story.pending { border-style: dashed; }
+.story.failed { border-color: var(--vscode-errorForeground, #f14c4c); }
+.story.ready { max-height: 45vh; overflow-y: auto; border-left-width: 4px; }
+.story.level-low { border-left-color: var(--vscode-testing-iconPassed, #388a34); }
+.story.level-medium { border-left-color: var(--vscode-editorWarning-foreground, #cca700); }
+.story.level-high { border-left-color: var(--vscode-errorForeground, #f14c4c); }
+.verdict-head { margin-bottom: 6px; }
+.badge {
+  display: inline-block; padding: 1px 8px; border-radius: 10px; font-weight: 600; font-size: 0.9em;
+  color: var(--vscode-badge-foreground); background: var(--vscode-badge-background);
+}
+.level-low .badge { color: #fff; background: var(--vscode-testing-iconPassed, #388a34); }
+.level-medium .badge { color: #000; background: var(--vscode-editorWarning-foreground, #cca700); }
+.level-high .badge { color: #fff; background: var(--vscode-errorForeground, #f14c4c); }
+.summary-line { font-weight: 600; }
+.story ul { margin: 6px 0 0; padding-left: 18px; }
+.story li { margin: 2px 0; }
+.reasons li.jump { cursor: pointer; border-radius: 4px; }
+.reasons li.jump:hover, .reasons li.jump:focus { background: var(--vscode-list-hoverBackground); outline: none; }
+.checks { margin-top: 6px; }
+.checks summary { font-weight: 600; }
+.fineprint { color: var(--muted); font-size: 0.85em; margin-top: 8px !important; }
+.action {
+  margin-top: 8px; padding: 4px 10px; border: none; border-radius: 2px; cursor: pointer;
+  color: var(--vscode-button-foreground); background: var(--vscode-button-background);
+}
+.action:hover { background: var(--vscode-button-hoverBackground); }
+.chips { white-space: nowrap; }
+.chip {
+  display: inline-block; margin-right: 4px; padding: 0 6px; border-radius: 8px; font-size: 0.85em; font-style: normal;
+  font-family: var(--vscode-editor-font-family);
+  border: 1px solid var(--border); color: var(--vscode-textLink-foreground);
+}
+.chip.unverified { color: var(--vscode-editorWarning-foreground, #cca700); border-style: dashed; font-family: inherit; }
 
 .warnings p {
   margin: 0 0 var(--gap);
@@ -69,7 +102,8 @@ summary { cursor: pointer; color: var(--muted); }
 
 .step { border: 1px solid var(--border); border-radius: var(--radius); padding: 12px; }
 .step .body pre { white-space: pre-wrap; color: var(--muted); margin-top: 4px; }
-.note { font-style: italic; margin: 8px 0; }
+.note { margin: 8px 0; padding: 6px 10px; border-left: 3px solid var(--vscode-textLink-foreground); background: var(--vscode-textBlockQuote-background, transparent); }
+.note.pending { border-left-color: var(--border); font-style: italic; }
 
 .snapshot, .removed pre {
   overflow-x: auto;

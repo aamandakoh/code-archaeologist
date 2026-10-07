@@ -1,8 +1,8 @@
 # Code Archaeologist
 
 Select some lines in VS Code and ask **"Why is this here?"**. Code Archaeologist plays back
-how those lines evolved, commit by commit, so you can see what changed, when, and (from
-milestone 2 on) why, ending in a cited "safe to change?" verdict.
+how those lines evolved, commit by commit, so you can see what changed, when and why, with a
+cited "safe to change?" verdict pinned at the top.
 
 ## Status
 
@@ -10,8 +10,8 @@ milestone 2 on) why, ending in a cited "safe to change?" verdict.
 | --- | --- | --- |
 | M0 | Workspaces, build, tests, extension skeleton | Done |
 | M1 | `git log -L` trace, noise filter, CLI, raw history panel | Done |
-| M2 | AI notes, summary and risk verdict (Gemini) | Next |
-| M3 | GitHub PRs, review comments and issues | |
+| M2 | AI notes, summary and risk verdict (Gemini) | Done |
+| M3 | GitHub PRs, review comments and issues | Next |
 | M4 | Time-lapse UI polish | |
 | M5 | Demo recording | |
 
@@ -19,7 +19,7 @@ milestone 2 on) why, ending in a cited "safe to change?" verdict.
 
 ```
 packages/
-  core/       evidence engine: trace, parse, noise filter, cache. Never imports vscode.
+  core/       evidence engine: trace, parse, noise filter, AI story, cache. Never imports vscode.
   cli/        `archaeologist trace <file> <start> <end>`, same pipeline outside VS Code
   extension/  VS Code command and webview panel
 ```
@@ -40,16 +40,39 @@ window, open a file in any git repository, select some lines, right-click and ch
 **Why is this here?** (or run **Code Archaeologist: Why is this here?** from the command palette).
 
 Install it in your normal VS Code instead: `npm run package -w packages/extension`, then
-**Extensions: Install from VSIX…** and pick `packages/extension/code-archaeologist-0.1.0.vsix`.
+**Extensions: Install from VSIX…** and pick `packages/extension/code-archaeologist-0.2.0.vsix`.
 
 ## CLI
 
 ```sh
 npm run build
-node packages/cli/dist/cli.js trace <file> <start> <end> [--json] [--snapshots] [--keep-noise] [--cache-dir <dir>]
+node packages/cli/dist/cli.js trace <file> <start> <end> [--json] [--snapshots] [--keep-noise] [--story] [--model <id>] [--cache-dir <dir>]
 ```
 
-Lines are 1-based and inclusive, matched against HEAD.
+Lines are 1-based and inclusive, matched against HEAD. `--story` asks Gemini for the summary,
+per-commit notes and verdict and needs `GEMINI_API_KEY`. With `--cache-dir`, a rerun of the same
+lines at the same HEAD reuses both the trace and the story, so recording a demo never waits on
+the model.
+
+## AI story
+
+One Gemini call per trace (`packages/core/src/story.ts`), default model `gemini-3.5-flash` on
+Google AI Studio's free tier:
+
+- **Input:** the lines today, then per commit its id, date, author, message and the diff of the
+  traced lines (trimmed to 60 lines). Above 25 commits, or about 30k tokens, middle commits are
+  sent as their subject line only.
+- **Output:** JSON with a one-sentence summary, a note per commit and a low/medium/high verdict
+  with 3 to 5 reasons and things to check, validated with zod.
+- **Citations:** every note and reason must cite ids from the input (`commit:b35fa73`,
+  `pr:49659`). Citations that match nothing are dropped, and a claim left with none is shown as
+  **unverified**. When the evidence gives no reason, the note says "No reason recorded."
+
+In VS Code, set the key with **Code Archaeologist: Set Gemini API key** (kept in secret storage;
+`GEMINI_API_KEY` in the environment also works) and the model with the `codeArchaeologist.model`
+setting. Without a key the panel shows the raw history and a button to add one. The free tier is
+sometimes overloaded (HTTP 503); the client retries with backoff, and a full trace can take a
+minute or two.
 
 ## Demo snippet
 

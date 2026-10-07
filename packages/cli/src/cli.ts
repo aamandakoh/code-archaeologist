@@ -1,6 +1,15 @@
 import path from 'node:path';
 import { parseArgs } from 'node:util';
-import { describeTimeline, trace, TimelineCache } from '@code-archaeologist/core';
+import {
+  DEFAULT_MODEL,
+  describeStory,
+  describeTimeline,
+  geminiClient,
+  StoryCache,
+  trace,
+  TimelineCache,
+  writeStory,
+} from '@code-archaeologist/core';
 
 const USAGE = `Usage: archaeologist trace <file> <start> <end> [options]
 
@@ -10,7 +19,10 @@ Options:
   --json             Print the Timeline as JSON
   --snapshots        Show the traced lines at each commit (text output only)
   --keep-noise       Keep whitespace, formatting and license-only commits
-  --cache-dir <dir>  Reuse results for the same file, range and HEAD
+  --story            Ask Gemini for per-commit notes, a summary and a risk verdict
+                     (needs GEMINI_API_KEY)
+  --model <id>       Gemini model for --story (default ${DEFAULT_MODEL})
+  --cache-dir <dir>  Reuse traces and stories for the same file, range and HEAD
   -h, --help         Show this help`;
 
 async function main(argv: string[]): Promise<number> {
@@ -21,6 +33,8 @@ async function main(argv: string[]): Promise<number> {
       json: { type: 'boolean', default: false },
       snapshots: { type: 'boolean', default: false },
       'keep-noise': { type: 'boolean', default: false },
+      story: { type: 'boolean', default: false },
+      model: { type: 'string' },
       'cache-dir': { type: 'string' },
       help: { type: 'boolean', short: 'h', default: false },
     },
@@ -38,16 +52,37 @@ async function main(argv: string[]): Promise<number> {
 
   const start = Number(startArg);
   const end = Number(endArg);
+  const apiKey = process.env.GEMINI_API_KEY;
+  if (values.story && !apiKey) {
+    console.error('archaeologist: --story needs a Gemini API key in GEMINI_API_KEY');
+    return 1;
+  }
+
+  const cacheDir = values['cache-dir'] ? path.resolve(values['cache-dir']) : undefined;
+  const progress = values.json ? undefined : (message: string) => console.error(`${message}…`);
   const timeline = await trace({
     file,
     start,
     end,
     keepNoise: values['keep-noise'],
-    cache: values['cache-dir'] ? new TimelineCache(path.resolve(values['cache-dir'])) : undefined,
-    onProgress: values.json ? undefined : (message) => console.error(`${message}…`),
+    cache: cacheDir ? new TimelineCache(path.join(cacheDir, 'timelines')) : undefined,
+    onProgress: progress,
   });
 
-  console.log(values.json ? JSON.stringify(timeline, null, 2) : describeTimeline(timeline, { snapshots: values.snapshots }));
+  if (values.story && apiKey) {
+    timeline.story = await writeStory(timeline, {
+      client: geminiClient({ apiKey, model: values.model }),
+      cache: cacheDir ? new StoryCache(path.join(cacheDir, 'stories')) : undefined,
+      onProgress: progress,
+    });
+  }
+
+  if (values.json) {
+    console.log(JSON.stringify(timeline, null, 2));
+  } else {
+    if (timeline.story) console.log(describeStory(timeline, timeline.story), '\n');
+    console.log(describeTimeline(timeline, { snapshots: values.snapshots }));
+  }
   return 0;
 }
 

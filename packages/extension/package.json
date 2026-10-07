@@ -2,9 +2,9 @@
   "name": "code-archaeologist",
   "displayName": "Code Archaeologist",
   "description": "Select code and see how it evolved commit by commit, and why.",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "private": true,
-  "publisher": "aamandakoh",
+  "publisher": "code-archaeologist",
   "license": "MIT",
   "repository": {
     "type": "git",
@@ -25,6 +25,11 @@
         "command": "codeArchaeologist.trace",
         "title": "Why is this here?",
         "category": "Code Archaeologist"
+      },
+      {
+        "command": "codeArchaeologist.setApiKey",
+        "title": "Set Gemini API key",
+        "category": "Code Archaeologist"
       }
     ],
     "menus": {
@@ -41,6 +46,16 @@
           "when": "editorIsOpen"
         }
       ]
+    },
+    "configuration": {
+      "title": "Code Archaeologist",
+      "properties": {
+        "codeArchaeologist.model": {
+          "type": "string",
+          "default": "gemini-3.5-flash",
+          "markdownDescription": "Gemini model that writes the notes, summary and verdict. Any model id from [Google AI Studio](https://aistudio.google.com) works. The API key is set with **Code Archaeologist: Set Gemini API key**, or read from the `GEMINI_API_KEY` environment variable."
+        }
+      }
     }
   },
   "scripts": {

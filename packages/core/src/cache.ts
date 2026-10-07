@@ -1,7 +1,7 @@
 import { createHash } from 'node:crypto';
 import { mkdir, readFile, rename, writeFile } from 'node:fs/promises';
 import path from 'node:path';
-import type { Timeline } from './types.js';
+import type { Story, Timeline } from './types.js';
 
 /** Bump when the Timeline shape changes so old cache entries are ignored. */
 const CACHE_VERSION = 1;
@@ -36,6 +36,34 @@ export class TimelineCache {
     await mkdir(this.dir, { recursive: true });
     const temp = `${target}.${process.pid}.tmp`;
     await writeFile(temp, JSON.stringify(timeline));
+    await rename(temp, target);
+  }
+}
+
+export type StoryKey = { version: number; model: string; prompt: string };
+
+/** Stories on disk, keyed by the exact prompt and model, so a rerun never calls the model twice. */
+export class StoryCache {
+  constructor(private readonly dir: string) {}
+
+  private pathFor(key: StoryKey): string {
+    const id = createHash('sha256').update(JSON.stringify([key.version, key.model, key.prompt])).digest('hex').slice(0, 32);
+    return path.join(this.dir, `${id}.json`);
+  }
+
+  async get(key: StoryKey): Promise<Story | undefined> {
+    try {
+      return JSON.parse(await readFile(this.pathFor(key), 'utf8')) as Story;
+    } catch {
+      return undefined;
+    }
+  }
+
+  async set(key: StoryKey, story: Story): Promise<void> {
+    const target = this.pathFor(key);
+    await mkdir(this.dir, { recursive: true });
+    const temp = `${target}.${process.pid}.tmp`;
+    await writeFile(temp, JSON.stringify(story));
     await rename(temp, target);
   }
 }

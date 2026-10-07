@@ -99,8 +99,8 @@ describe('parseGitHubRemote', () => {
   test('reads https and ssh remotes', async () => {
     const { parseGitHubRemote } = await import('../src/index.js');
     expect(parseGitHubRemote('https://github.com/angular/angular.git\n')).toEqual({ owner: 'angular', repo: 'angular' });
-    expect(parseGitHubRemote('git@github.com:aamandakoh/code-archaeologist.git')).toEqual({
-      owner: 'aamandakoh',
+    expect(parseGitHubRemote('git@github.com:octo-org/code-archaeologist.git')).toEqual({
+      owner: 'octo-org',
       repo: 'code-archaeologist',
     });
     expect(parseGitHubRemote('https://gitlab.com/a/b.git')).toBeUndefined();

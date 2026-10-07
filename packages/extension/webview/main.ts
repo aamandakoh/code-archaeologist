@@ -1,5 +1,5 @@
-import type { Step, Timeline } from '@code-archaeologist/core/src/types.js';
-import type { FromWebview, ToWebview } from '../src/messages';
+import type { Step, Story, Timeline } from '@code-archaeologist/core/src/types.js';
+import type { AiState, FromWebview, ToWebview } from '../src/messages';
 
 declare function acquireVsCodeApi(): { postMessage(message: FromWebview): void };
 
@@ -7,6 +7,7 @@ const vscode = acquireVsCodeApi();
 const app = document.getElementById('app')!;
 
 let timeline: Timeline | undefined;
+let ai: AiState = { status: 'writing' };
 let current = 0;
 
 window.addEventListener('message', (event: MessageEvent<ToWebview>) => {
@@ -21,11 +22,20 @@ window.addEventListener('message', (event: MessageEvent<ToWebview>) => {
       if (status) status.textContent = message.message;
       break;
     }
-    case 'timeline':
+    case 'timeline': {
+      const same = timeline !== undefined && sameTrace(timeline, message.timeline) && document.getElementById('story');
       timeline = message.timeline;
-      current = Math.max(0, timeline.steps.length - 1);
-      renderTimeline(timeline);
+      ai = message.ai;
+      if (same) {
+        // The story arrived for the timeline on screen: update in place, keep the slider where it is.
+        document.getElementById('story')!.replaceWith(renderStory(timeline, ai));
+        if (timeline.steps.length > 0) select(current);
+      } else {
+        current = Math.max(0, timeline.steps.length - 1);
+        renderTimeline(timeline);
+      }
       break;
+    }
     case 'error':
       timeline = undefined;
       renderError(message.message);
@@ -101,18 +111,13 @@ function renderTimeline(t: Timeline) {
     noise,
   );
 
-  // Pinned above the history; milestone 2 fills it with the summary and verdict.
-  const story = el(
-    'section',
-    { class: 'story pending', attrs: { 'aria-label': 'Summary and verdict' } },
-    el('h2', { text: 'Summary and verdict' }),
-    el('p', { text: 'No AI story yet. The one-line summary and the risk verdict will appear here; the raw history is below.' }),
-  );
+  // Pinned above the history so the verdict is the first thing you read.
+  const story = renderStory(t, ai);
 
   const warnings = t.warnings.length > 0 && el('div', { class: 'warnings' }, ...t.warnings.map((w) => el('p', { text: w })));
 
   if (t.steps.length === 0) {
-    app.replaceChildren(header, story, warnings || '', el('p', { class: 'status', text: 'No commits touched these lines.' }));
+    app.replaceChildren(story, header, warnings || '', el('p', { class: 'status', text: 'No commits touched these lines.' }));
     return;
   }
 
@@ -157,7 +162,7 @@ function renderTimeline(t: Timeline) {
     ),
   );
 
-  app.replaceChildren(header, story, warnings || '', player, list);
+  app.replaceChildren(story, header, warnings || '', player, list);
   select(current);
 }
 
@@ -210,10 +215,168 @@ function renderStep(t: Timeline, step: Step): HTMLElement {
     el('h3', { text: subject(commit.message) }),
     el('p', { class: 'meta' }, commitLink(t, commit.sha), ` · ${commit.author} · ${shortDate(commit.date)}`),
     body && el('details', { class: 'body' }, el('summary', { text: 'Full commit message' }), el('pre', { text: body })),
-    el('p', { class: 'note pending', text: 'The AI note for this step will appear here.' }),
+    renderNote(t, step),
     code,
     removed,
   );
+}
+
+function sameTrace(a: Timeline, b: Timeline): boolean {
+  return a.file === b.file && a.head === b.head && a.range[0] === b.range[0] && a.range[1] === b.range[1];
+}
+
+const LEVELS: Record<Story['verdict']['level'], string> = {
+  low: 'Low risk to change',
+  medium: 'Medium risk to change',
+  high: 'High risk to change',
+};
+
+function renderStory(t: Timeline, state: AiState): HTMLElement {
+  const section = (cls: string, ...children: (Node | string | false | undefined)[]) =>
+    el('section', { class: `story ${cls}`, attrs: { id: 'story', 'aria-label': 'Summary and verdict' } }, ...children);
+  const button = (text: string, message: FromWebview) => {
+    const b = el('button', { class: 'action', text });
+    b.addEventListener('click', () => vscode.postMessage(message));
+    return b;
+  };
+
+  if (t.steps.length === 0) return section('pending', el('p', { text: 'Nothing to explain: no commits touched these lines.' }));
+
+  const story = t.story;
+  if (!story || state.status !== 'ready') {
+    switch (state.status) {
+      case 'writing':
+        return section(
+          'pending',
+          el('p', { class: 'status' }, el('span', { class: 'spinner', attrs: { 'aria-hidden': 'true' } }), el('span', { text: 'Writing the story… The raw history is below meanwhile.' })),
+        );
+      case 'no-key':
+        return section(
+          'pending',
+          el('p', { text: 'Add a Gemini API key to get a summary, a note on every commit and a "safe to change?" verdict. The raw history is below.' }),
+          button('Add Gemini API key', { type: 'set-key' }),
+        );
+      case 'error':
+        return section(
+          'pending failed',
+          el('p', { class: 'error', text: `Could not write the story. ${state.message}` }),
+          button('Try again', { type: 'retry-story' }),
+        );
+      default:
+        return section('pending', el('p', { text: 'No story for these lines.' }));
+    }
+  }
+
+  const reasons = el(
+    'ul',
+    { class: 'reasons' },
+    ...story.verdict.reasons.map((reason) => {
+      const target = stepForCitations(t, reason.citations);
+      const item = el(
+        'li',
+        target === undefined ? {} : { class: 'jump', attrs: { tabindex: '0', title: 'Show the commit this cites' } },
+        el('span', { text: reason.text }),
+        ' ',
+        citationChips(t, reason),
+      );
+      if (target !== undefined) {
+        item.addEventListener('click', (e) => {
+          if ((e.target as HTMLElement).closest('a')) return; // chips open GitHub
+          select(target);
+        });
+        item.addEventListener('keydown', (e) => {
+          if (e.key === 'Enter') select(target);
+        });
+      }
+      return item;
+    }),
+  );
+
+  const checks =
+    story.verdict.checks.length > 0 &&
+    el(
+      'details',
+      { class: 'checks', attrs: { open: '' } },
+      el('summary', { text: 'Check before you change it' }),
+      el('ul', {}, ...story.verdict.checks.map((c) => el('li', { text: c }))),
+    );
+
+  const flagged = story.steps.filter((s) => s.flagged).length + story.verdict.reasons.filter((r) => r.flagged).length;
+  const footer = [
+    `Written by ${story.model} from commit messages and diffs.`,
+    story.reduced > 0 ? `${story.reduced} older commits were sent as their subject line only.` : '',
+    flagged > 0 ? `${flagged} claim${flagged === 1 ? '' : 's'} cited nothing in the evidence and ${flagged === 1 ? 'is' : 'are'} marked unverified.` : '',
+  ]
+    .filter(Boolean)
+    .join(' ');
+
+  return section(
+    `ready level-${story.verdict.level}`,
+    el('div', { class: 'verdict-head' }, el('span', { class: 'badge', text: LEVELS[story.verdict.level] })),
+    el('p', { class: 'summary-line', text: story.summary }),
+    reasons,
+    checks,
+    el('p', { class: 'fineprint', text: footer }),
+  );
+}
+
+function renderNote(t: Timeline, step: Step): HTMLElement {
+  if (ai.status === 'writing') return el('p', { class: 'note pending', text: 'Writing the note for this commit…' });
+  const note = t.story?.steps.find((n) => n.commit === step.commit.sha);
+  if (!note) {
+    const text = t.story ? 'No note for this commit.' : 'The AI note for this commit appears here once the story is written.';
+    return el('p', { class: 'note pending', text });
+  }
+  return el('p', { class: 'note' }, el('span', { text: note.note }), ' ', citationChips(t, note));
+}
+
+/** Chips linking each citation to GitHub, or an "unverified" marker when none survived the check. */
+function citationChips(t: Timeline, claim: { citations: string[]; flagged?: boolean }): HTMLElement {
+  if (claim.flagged) {
+    return el('span', { class: 'chips' }, el('span', { class: 'chip unverified', text: 'unverified', attrs: { title: 'None of the cited ids matched the evidence' } }));
+  }
+  return el(
+    'span',
+    { class: 'chips' },
+    ...claim.citations.map((citation) => {
+      const href = citationUrl(t, citation);
+      const label = citation.replace(/^commit:/, '').replace(/^pr:/, '#').replace(/^issue:/, '#');
+      return href
+        ? el('a', { class: 'chip', text: label, attrs: { href, title: citation } })
+        : el('span', { class: 'chip', text: label, attrs: { title: citation } });
+    }),
+  );
+}
+
+function citationUrl(t: Timeline, citation: string): string | undefined {
+  const [kind, ref = ''] = citation.split(':');
+  if (kind === 'review') {
+    const [sha, n] = ref.split('-');
+    return t.steps.find((s) => s.commit.sha.startsWith(sha ?? ''))?.reviews[Number(n) - 1]?.url;
+  }
+  if (!t.github) return undefined;
+  const repo = `https://github.com/${t.github.owner}/${t.github.repo}`;
+  if (kind === 'commit') {
+    const sha = t.steps.find((s) => s.commit.sha.startsWith(ref))?.commit.sha ?? ref;
+    return `${repo}/commit/${sha}`;
+  }
+  if (kind === 'pr') return `${repo}/pull/${ref}`;
+  if (kind === 'issue') return `${repo}/issues/${ref}`;
+  return undefined;
+}
+
+/** The step a list of citations points at: the first commit cited, else the commit naming a cited PR or issue. */
+function stepForCitations(t: Timeline, citations: string[]): number | undefined {
+  for (const citation of citations) {
+    const [kind, ref = ''] = citation.split(':');
+    const index = t.steps.findIndex((s) =>
+      kind === 'commit' || kind === 'review'
+        ? s.commit.sha.startsWith(ref.split('-')[0] ?? ref)
+        : s.pr?.number === Number(ref) || new RegExp(`#${ref}\\b`).test(s.commit.message) || s.issues.some((i) => i.number === Number(ref)),
+    );
+    if (index >= 0) return index;
+  }
+  return undefined;
 }
 
 function commitLink(t: Timeline, sha: string): HTMLElement {
