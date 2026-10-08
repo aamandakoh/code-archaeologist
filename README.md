@@ -4,16 +4,18 @@ Select some lines in VS Code and ask **"Why is this here?"**. Code Archaeologist
 how those lines evolved, commit by commit, so you can see what changed, when and why, with a
 cited "safe to change?" verdict pinned at the top.
 
-## Status
+## Contents
 
-| Milestone | What it adds | State |
-| --- | --- | --- |
-| M0 | Workspaces, build, tests, extension skeleton | Done |
-| M1 | `git log -L` trace, noise filter, CLI, raw history panel | Done |
-| M2 | AI notes, summary and risk verdict (Gemini) | Done |
-| M3 | GitHub PRs, review comments and issues (and GitLab merge requests) | Done |
-| M4 | Time-lapse UI polish | Done |
-| M5 | Demo recording | Next |
+- [Install](#install)
+  - [Settings](#settings)
+- [Status](#status)
+- [Layout](#layout)
+- [Develop](#develop)
+- [CLI](#cli)
+- [GitHub context](#github-context)
+  - [GitLab](#gitlab)
+- [AI story](#ai-story)
+- [Demo snippet](#demo-snippet)
 
 ## Install
 
@@ -24,12 +26,32 @@ No build needed. Download `code-archaeologist-<version>.vsix` from the
 - from a terminal: `code --install-extension code-archaeologist-<version>.vsix`
 
 Reload VS Code if asked. Select some lines in a file inside a git repository, right-click and choose
-**Why is this here?**. Run **Code Archaeologist: Open settings** to add an LLM API key and,
-optionally, a GitHub or GitLab token.
-
-The repository is private for now, so the release download only works for people with access to it.
-With the GitHub CLI you can also fetch it from a terminal:
+**Why is this here?**. With the GitHub CLI you can also fetch the file from a terminal:
 `gh release download --repo aamandakoh/code-archaeologist --pattern '*.vsix'`.
+
+### Settings
+
+Run **Code Archaeologist: Open settings** (or the gear on the panel) to set these. Keys and tokens
+are kept in VS Code secret storage, and **Test connection** checks them before you save.
+
+| Setting | Needed? | What it does |
+| --- | --- | --- |
+| LLM API key | **Must**, for the AI story | Without it you still get the commit-by-commit history, but no notes, summary or verdict. The default provider is Gemini: get a free key at [aistudio.google.com/apikey](https://aistudio.google.com/apikey). Also read from `GEMINI_API_KEY` or `OPENAI_API_KEY`. |
+| Provider, API URL and model | Optional | Defaults to Gemini with `gemini-3.5-flash`. Pick **OpenAI-compatible** to use OpenAI, OpenRouter, or a local server like Ollama or LM Studio. That format needs a model id, and a local server usually needs no key. |
+| GitHub token | **Should**, for GitHub repos | Lets the story cite PRs, review comments and linked issues. Without one GitHub allows only 60 requests an hour, and private repos can't be read. A fine-grained token with read access to pull requests and issues is enough. Also read from `GITHUB_TOKEN`. |
+| GitLab token | **Should**, for GitLab repos | The same for merge requests, comments and issues. Needs the `read_api` scope. Also read from `GITLAB_TOKEN`. |
+| GitLab URL | Only for self-hosted GitLab | Needed when your GitLab's host name doesn't contain "gitlab", e.g. `https://git.example.com`. |
+
+## Status
+
+| Milestone | What it adds | State |
+| --- | --- | --- |
+| M0 | Workspaces, build, tests, extension skeleton | Done |
+| M1 | `git log -L` trace, noise filter, CLI, raw history panel | Done |
+| M2 | AI notes, summary and risk verdict (Gemini) | Done |
+| M3 | GitHub PRs, review comments and issues (and GitLab merge requests) | Done |
+| M4 | Time-lapse UI polish | Done |
+| M5 | Demo recording | Next |
 
 ## Layout
 
