@@ -1,0 +1,22 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 128 128">
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#e09246"/>
+      <stop offset="1" stop-color="#9a4c1a"/>
+    </linearGradient>
+  </defs>
+  <rect width="128" height="128" rx="26" fill="url(#bg)"/>
+  <!-- strata, with lines of code buried in them -->
+  <path d="M0 98 Q32 92 64 98 T128 96 V128 H0Z" fill="#5a2a0c" opacity=".35"/>
+  <path d="M0 112 Q32 107 64 113 T128 110 V128 H0Z" fill="#5a2a0c" opacity=".4"/>
+  <g stroke="#fff8ee" stroke-width="4" stroke-linecap="round" opacity=".75">
+    <path d="M22 104 H46"/><path d="M54 104 H66"/><path d="M74 104 H100"/>
+    <path d="M34 119 H58"/><path d="M66 119 H90"/>
+  </g>
+  <!-- rewinding clock -->
+  <g fill="none" stroke="#fff8ee" stroke-width="8" stroke-linecap="round" stroke-linejoin="round">
+    <path d="M35.8 45.7 A30 30 0 1 1 35.8 66.3"/>
+    <path d="M64 40 V56 L75 64"/>
+  </g>
+  <path d="M26.5 41.5 L45 48 L32 59 Z" fill="#fff8ee" stroke="#fff8ee" stroke-width="3" stroke-linejoin="round"/>
+</svg>
