@@ -5,6 +5,8 @@ import type { FromSettings, SecretName, SecretState, SettingsValues, ToSettings 
 /** The settings form: LLM provider, URL, model and key, the GitHub and GitLab tokens, and Jira. */
 export class SettingsPanel {
   private static current: SettingsPanel | undefined;
+  private saving = false;
+  private stateSeq = 0;
 
   static show(extensionUri: vscode.Uri, host: SettingsHost): void {
     if (SettingsPanel.current) {
@@ -28,7 +30,9 @@ export class SettingsPanel {
     panel.webview.onDidReceiveMessage((message: FromSettings) => void this.handle(message));
     // Edits made in VS Code's own settings show up here too.
     const watch = vscode.workspace.onDidChangeConfiguration((e) => {
-      if (e.affectsConfiguration('codeArchaeologist')) void this.sendState();
+      // A save sends the state itself once every setting is written; one sent halfway would show
+      // the fields not yet written as empty, and a second Save would then store them empty.
+      if (e.affectsConfiguration('codeArchaeologist') && !this.saving) void this.sendState();
     });
     panel.onDidDispose(() => {
       watch.dispose();
@@ -46,9 +50,23 @@ export class SettingsPanel {
       const result = await this.host.testJira(message.values, message.token);
       return this.post({ type: 'test-result', target: 'jira', ...result });
     }
+    this.saving = true;
+    try {
+      await this.save(message.values, message.secrets);
+    } catch (error) {
+      void vscode.window.showErrorMessage(`Code Archaeologist: could not save settings. ${error instanceof Error ? error.message : String(error)}`);
+      return this.sendState();
+    } finally {
+      this.saving = false;
+    }
+    await this.sendState();
+    this.post({ type: 'saved' });
+    this.host.saved();
+  }
+
+  private async save(values: SettingsValues, secrets: Partial<Record<SecretName, string | null>>): Promise<void> {
     const config = vscode.workspace.getConfiguration('codeArchaeologist');
     const target = vscode.ConfigurationTarget.Global;
-    const { values } = message;
     // An empty field resets the setting to its default rather than storing "".
     await config.update('provider', values.provider === 'gemini' ? undefined : values.provider, target);
     await config.update('baseUrl', values.baseUrl.trim() || undefined, target);
@@ -57,16 +75,15 @@ export class SettingsPanel {
     await config.update('jiraUrl', values.jiraUrl.trim() || undefined, target);
     await config.update('jiraEmail', values.jiraEmail.trim() || undefined, target);
     await config.update('jiraProjects', values.jiraProjects.trim() || undefined, target);
-    for (const [name, value] of Object.entries(message.secrets) as [SecretName, string | null][]) {
+    for (const [name, value] of Object.entries(secrets) as [SecretName, string | null][]) {
       if (value === null) await this.host.secrets.delete(SECRETS[name]);
       else if (value.trim()) await this.host.secrets.store(SECRETS[name], value.trim());
     }
-    await this.sendState();
-    this.post({ type: 'saved' });
-    this.host.saved();
   }
 
   private async sendState(): Promise<void> {
+    // Secret reads are async, so an earlier call can finish after a later one: only the latest posts.
+    const seq = ++this.stateSeq;
     const config = vscode.workspace.getConfiguration('codeArchaeologist');
     const values: SettingsValues = {
       provider: config.get<string>('provider') === 'openai' ? 'openai' : 'gemini',
@@ -88,7 +105,7 @@ export class SettingsPanel {
       llmHeaders: await where('llmHeaders'),
     };
     const headerNames = Object.keys(parseHeaders((await this.host.secrets.get(SECRETS.llmHeaders)) ?? '').headers);
-    this.post({ type: 'state', values, secrets, headerNames });
+    if (seq === this.stateSeq) this.post({ type: 'state', values, secrets, headerNames });
   }
 
   private post(message: ToSettings): void {
