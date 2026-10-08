@@ -5,7 +5,7 @@ import { mrFromMessage } from './gitlab.js';
 import type { StoryCache } from './cache.js';
 
 /** Bump when the prompt or the Story shape changes, so cached stories are regenerated. */
-export const STORY_VERSION = 3;
+export const STORY_VERSION = 4;
 
 /** Limits on what goes to the model. Roughly 4 characters per token, so about 30k tokens. */
 export const LIMITS = {
@@ -30,7 +30,7 @@ Rules:
 - When the reason comes from a review comment or an issue, say who raised it or what broke in plain words, and cite that review or issue id.
 - Every note and every verdict reason cites at least one id exactly as written in the evidence, such as "commit:b35fa73", "pr:49659", "review:b35fa73-2" or "issue:31462". Cite the PR, review or issue the claim rests on, not just the commit. Never invent ids.
 - Write one note per commit, in the same order as the evidence, using its short hash in "commit". Commits marked [reduced] get a short note from their subject alone.
-- Notes are at most 2 sentences, plain words, no markdown. Ids go in "citations", not in the text.
+- Notes are at most 2 sentences, plain words, no markdown. Ids go in "citations", never in the text: no "citations:" or id lists in a note or reason.
 - "summary" is one sentence on how these lines got to where they are today and what that means for someone about to change them. Do not just describe what the code does.
 - The verdict level is low, medium or high risk to change. Raise it for security fixes, security review sign-offs, reverts, a change made and then undone, tests added alongside a change, breakage reported in review, or code labelled as taken from another library.
 - Give 3 to 5 verdict reasons, most important first, each citing the specific commits it rests on. Name concrete events (a fix that was reverted, a behaviour that was loosened), not general statements.
@@ -573,6 +573,13 @@ export async function writeStory(timeline: Timeline, options: WriteStoryOptions)
 function prose(text: string, mr = false): string {
   return text
     .trim()
+    // A citation list copied into the text, which the chips already show: "(citations: commit:ab12, pr:3)",
+    // "Citations: [pr:3]" at the end, or a bare "(commit:ab12, review:9)" ending the text. An id
+    // mid-sentence stays, as a readable reference.
+    .replace(/\s*[([]\s*(?:citations?|sources?|cites?)\s*:[^)\]]*[)\]]/gi, '')
+    .replace(/\s*\b(?:citations?|sources?)\s*:\s*\[?\s*(?:(?:commit|pr|issue|review):[\w-]+[\s,;]*)+\]?\s*\.?\s*$/i, '')
+    .replace(/\s*[([]\s*(?:(?:commit|pr|issue|review):[\w-]+[\s,;]*)+[)\]](?=\s*[.!?]?\s*$)/gi, '')
+    .replace(/\s+([.,;])/g, '$1')
     .replace(/\bcommit:([0-9a-f]{7,40})\b/gi, (_, sha: string) => short(sha))
     .replace(/\bpr:(\d+)\b/gi, mr ? '!$1' : '#$1')
     .replace(/\bissue:(\d+)\b/gi, '#$1');

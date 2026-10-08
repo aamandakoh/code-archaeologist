@@ -104,6 +104,16 @@ describe('parseStory', () => {
     expect(story.steps[0]!.citations).toEqual(['commit:fc5c34d', 'pr:31463']);
   });
 
+  test('drops citation lists the model copied into the text', () => {
+    const steps = [
+      { commit: 'b35fa73', note: 'Only javascript: is blocked now (citations: commit:b35fa73, pr:49659).', citations: ['commit:b35fa73'] },
+      { commit: 'fc9b2d6', note: 'Tightened the pattern. Citations: [commit:fc9b2d6, review:12]', citations: ['commit:fc9b2d6'] },
+      { commit: 'e96936a', note: 'Reverted it (commit:e96936a, pr:49659).', citations: ['commit:e96936a'] },
+    ];
+    const notes = parseStory(answer({ steps }), timeline, prompt, 'm').steps.map((n) => n.note);
+    expect(notes.sort()).toEqual(['Only javascript: is blocked now.', 'Reverted it.', 'Tightened the pattern.']);
+  });
+
   test('accepts JSON wrapped in a code fence', () => {
     expect(parseStory('```json\n' + answer() + '\n```', timeline, prompt, 'm').summary).toMatch(/reverted/);
   });
