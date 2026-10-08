@@ -1,0 +1,37 @@
+name: Release
+
+# Push a tag like v0.7.0 to build the extension and attach the .vsix to a GitHub Release.
+on:
+  push:
+    tags: ["v*"]
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - run: npm run typecheck
+      - run: npm test
+      - name: Check the tag matches the extension version
+        run: |
+          version=$(node -p "require('./packages/extension/package.json').version")
+          if [ "v$version" != "$GITHUB_REF_NAME" ]; then
+            echo "Tag $GITHUB_REF_NAME does not match packages/extension version $version" >&2
+            exit 1
+          fi
+      - run: npm run package -w packages/extension
+      - name: Publish the release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release create "$GITHUB_REF_NAME" packages/extension/*.vsix \
+            --title "Code Archaeologist $GITHUB_REF_NAME" \
+            --notes "Download the .vsix below, then in VS Code run **Extensions: Install from VSIX…** and pick it. See the README for setup."

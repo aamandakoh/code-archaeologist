@@ -15,6 +15,22 @@ cited "safe to change?" verdict pinned at the top.
 | M4 | Time-lapse UI polish | Done |
 | M5 | Demo recording | Next |
 
+## Install
+
+No build needed. Download `code-archaeologist-<version>.vsix` from the
+[latest release](https://github.com/aamandakoh/code-archaeologist/releases/latest), then either:
+
+- in VS Code, open the command palette and run **Extensions: Install from VSIX…**, then pick the file, or
+- from a terminal: `code --install-extension code-archaeologist-<version>.vsix`
+
+Reload VS Code if asked. Select some lines in a file inside a git repository, right-click and choose
+**Why is this here?**. Run **Code Archaeologist: Open settings** to add an LLM API key and,
+optionally, a GitHub or GitLab token.
+
+The repository is private for now, so the release download only works for people with access to it.
+With the GitHub CLI you can also fetch it from a terminal:
+`gh release download --repo aamandakoh/code-archaeologist --pattern '*.vsix'`.
+
 ## Layout
 
 ```
@@ -39,8 +55,12 @@ Run the extension: open this folder in VS Code and press **F5** ("Run extension"
 window, open a file in any git repository, select some lines, right-click and choose
 **Why is this here?** (or run **Code Archaeologist: Why is this here?** from the command palette).
 
-Install it in your normal VS Code instead: `npm run package -w packages/extension`, then
-**Extensions: Install from VSIX…** and pick `packages/extension/code-archaeologist-0.4.0.vsix`.
+Build your own `.vsix` instead: `npm run package -w packages/extension` writes
+`packages/extension/code-archaeologist-<version>.vsix`, which installs as above.
+
+Cut a release: bump `version` in `packages/extension/package.json`, push to `main`, then push a
+matching tag (`git tag v0.7.0 && git push origin v0.7.0`). The Release workflow builds the `.vsix`
+and attaches it to a GitHub Release for that tag.
 
 ## CLI
 
