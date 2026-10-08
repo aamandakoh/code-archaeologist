@@ -58,9 +58,9 @@ window, open a file in any git repository, select some lines, right-click and ch
 Build your own `.vsix` instead: `npm run package -w packages/extension` writes
 `packages/extension/code-archaeologist-<version>.vsix`, which installs as above.
 
-Cut a release: bump `version` in `packages/extension/package.json`, push to `main`, then push a
-matching tag (`git tag v0.7.0 && git push origin v0.7.0`). The Release workflow builds the `.vsix`
-and attaches it to a GitHub Release for that tag.
+Cut a release: bump `version` in `packages/extension/package.json` and push to `main`. The
+Release workflow builds the `.vsix` and publishes it as GitHub Release `v<version>`. It can also be
+run by hand from the Actions tab, and skips versions that already have a release.
 
 ## CLI
 

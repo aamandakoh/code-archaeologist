@@ -1,9 +1,14 @@
 name: Release
 
-# Push a tag like v0.7.0 to build the extension and attach the .vsix to a GitHub Release.
+# Builds the extension and attaches the .vsix to a GitHub Release named v<version>, using the
+# version in packages/extension/package.json. Runs when that version changes on main, when a
+# matching v* tag is pushed, or by hand from the Actions tab. Skips if the release already exists.
 on:
   push:
+    branches: [main]
+    paths: ["packages/extension/package.json"]
     tags: ["v*"]
+  workflow_dispatch:
 
 permissions:
   contents: write
@@ -13,25 +18,37 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
-        with:
-          node-version: 22
-          cache: npm
-      - run: npm ci
-      - run: npm run typecheck
-      - run: npm test
-      - name: Check the tag matches the extension version
-        run: |
-          version=$(node -p "require('./packages/extension/package.json').version")
-          if [ "v$version" != "$GITHUB_REF_NAME" ]; then
-            echo "Tag $GITHUB_REF_NAME does not match packages/extension version $version" >&2
-            exit 1
-          fi
-      - run: npm run package -w packages/extension
-      - name: Publish the release
+      - name: Work out the release tag
+        id: tag
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          gh release create "$GITHUB_REF_NAME" packages/extension/*.vsix \
-            --title "Code Archaeologist $GITHUB_REF_NAME" \
+          tag="v$(node -p "require('./packages/extension/package.json').version")"
+          if [ "$GITHUB_REF_TYPE" = tag ] && [ "$GITHUB_REF_NAME" != "$tag" ]; then
+            echo "Tag $GITHUB_REF_NAME does not match the extension version ($tag)" >&2
+            exit 1
+          fi
+          echo "tag=$tag" >> "$GITHUB_OUTPUT"
+          if gh release view "$tag" >/dev/null 2>&1; then
+            echo "Release $tag already exists; nothing to do."
+            echo "exists=true" >> "$GITHUB_OUTPUT"
+          fi
+      - if: steps.tag.outputs.exists != 'true'
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - if: steps.tag.outputs.exists != 'true'
+        run: npm ci && npm run typecheck && npm test
+      - if: steps.tag.outputs.exists != 'true'
+        run: npm run package -w packages/extension
+      - name: Publish the release
+        if: steps.tag.outputs.exists != 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ steps.tag.outputs.tag }}
+        run: |
+          gh release create "$TAG" packages/extension/*.vsix \
+            --target "$GITHUB_SHA" \
+            --title "Code Archaeologist $TAG" \
             --notes "Download the .vsix below, then in VS Code run **Extensions: Install from VSIX…** and pick it. See the README for setup."
