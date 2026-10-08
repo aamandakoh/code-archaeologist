@@ -18,4 +18,10 @@ export type ToWebview =
   | { type: 'error'; message: string };
 
 /** Webview → extension. */
-export type FromWebview = { type: 'ready' } | { type: 'set-key' } | { type: 'set-github-token' } | { type: 'set-gitlab-token' } | { type: 'retry-story' };
+export type FromWebview =
+  | { type: 'ready' }
+  | { type: 'set-key' }
+  | { type: 'set-github-token' }
+  | { type: 'set-gitlab-token' }
+  | { type: 'open-settings' }
+  | { type: 'retry-story' };

@@ -24,6 +24,16 @@ const builds = [
     format: 'iife',
     sourcemap: true,
   },
+  // Settings page: the same, for the settings form.
+  {
+    entryPoints: ['webview/settings.ts'],
+    outfile: 'dist/settings.js',
+    bundle: true,
+    platform: 'browser',
+    target: 'es2022',
+    format: 'iife',
+    sourcemap: true,
+  },
 ];
 
 if (watch) {

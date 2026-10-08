@@ -105,7 +105,8 @@ Google AI Studio's free tier:
   `pr:49659`). Citations that match nothing are dropped, and a claim left with none is shown as
   **unverified**. When the evidence gives no reason, the note says "No reason recorded."
 
-In VS Code, set the key with **Code Archaeologist: Set LLM API key** (kept in secret storage;
+In VS Code, **Code Archaeologist: Open settings** shows all of this as a form, with presets and
+a connection test. Or set the key with **Code Archaeologist: Set LLM API key** (kept in secret storage;
 `GEMINI_API_KEY` in the environment also works) and the model with the `codeArchaeologist.model`
 setting.
 

@@ -12,11 +12,12 @@ import {
   type Timeline,
 } from '@code-archaeologist/core';
 import { ArchaeologistPanel } from './panel';
+import { SECRETS, SettingsPanel } from './settings';
 import type { AiState } from './messages';
 
-const KEY_SECRET = 'codeArchaeologist.geminiApiKey';
-const GITHUB_SECRET = 'codeArchaeologist.githubToken';
-const GITLAB_SECRET = 'codeArchaeologist.gitlabToken';
+const KEY_SECRET = SECRETS.apiKey;
+const GITHUB_SECRET = SECRETS.githubToken;
+const GITLAB_SECRET = SECRETS.gitlabToken;
 
 export function activate(context: vscode.ExtensionContext): void {
   const output = vscode.window.createOutputChannel('Code Archaeologist');
@@ -176,10 +177,46 @@ export function activate(context: vscode.ExtensionContext): void {
     if (shown) void explain(shown.raw, shown.panel);
   }
 
+  function openSettings(): void {
+    SettingsPanel.show(context.extensionUri, {
+      secrets: context.secrets,
+      async test(values, typedKey) {
+        const key = typedKey || (await apiKey(values.provider));
+        const client = modelClient({
+          provider: values.provider,
+          baseUrl: values.baseUrl.trim() || undefined,
+          model: values.model.trim() || undefined,
+          apiKey: key,
+          retries: 0,
+          timeoutMs: 60_000,
+        });
+        const prompt = {
+          system: 'You check that an API connection works.',
+          user: 'Reply with {"ok": true}.',
+          schema: { type: 'object', properties: { ok: { type: 'boolean' } }, required: ['ok'] },
+          ids: [],
+          reduced: 0,
+        };
+        const started = Date.now();
+        try {
+          await client.generate(prompt);
+          return { ok: true, message: `Connected: ${client.model} answered in ${((Date.now() - started) / 1000).toFixed(1)}s.` };
+        } catch (error) {
+          return { ok: false, message: error instanceof Error ? error.message : String(error) };
+        }
+      },
+      saved() {
+        // New keys, tokens or model: read the lines on screen again and rewrite their story.
+        if (shown) void explain(shown.raw, shown.panel);
+      },
+    });
+  }
+
   ArchaeologistPanel.onAction = (message) => {
     if (message.type === 'set-key') void setApiKey();
     if (message.type === 'set-github-token') void setGitHubToken();
     if (message.type === 'set-gitlab-token') void setGitLabToken();
+    if (message.type === 'open-settings') openSettings();
     if (message.type === 'retry-story' && shown) void tellStory(shown.timeline, shown.raw, shown.panel);
   };
 
@@ -189,6 +226,7 @@ export function activate(context: vscode.ExtensionContext): void {
     vscode.commands.registerCommand('codeArchaeologist.setApiKey', setApiKey),
     vscode.commands.registerCommand('codeArchaeologist.setGitHubToken', setGitHubToken),
     vscode.commands.registerCommand('codeArchaeologist.setGitLabToken', setGitLabToken),
+    vscode.commands.registerCommand('codeArchaeologist.openSettings', openSettings),
     vscode.commands.registerCommand('codeArchaeologist.trace', async () => {
       const editor = vscode.window.activeTextEditor;
       if (!editor) {

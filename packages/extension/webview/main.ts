@@ -518,8 +518,8 @@ const LEVELS: Record<Story['verdict']['level'], string> = {
 function renderStory(t: Timeline, state: AiState): HTMLElement {
   const section = (cls: string, ...children: (Node | string | false | undefined)[]) =>
     el('section', { class: `story ${cls}`, attrs: { id: 'story', 'aria-label': 'Summary and verdict' } }, ...children);
-  const button = (text: string, message: FromWebview) => {
-    const b = el('button', { class: 'action', text });
+  const button = (text: string, message: FromWebview, kind?: 'secondary') => {
+    const b = el('button', { class: kind ? `action ${kind}` : 'action', text });
     b.addEventListener('click', () => vscode.postMessage(message));
     return b;
   };
@@ -543,14 +543,14 @@ function renderStory(t: Timeline, state: AiState): HTMLElement {
         return section(
           'pending',
           el('p', { text: 'Add an LLM API key to get a summary, a note on every commit and a "safe to change?" verdict. The raw history is below.' }),
-          button('Add API key', { type: 'set-key' }),
+          button('Set up AI model', { type: 'open-settings' }),
           githubNotice(t),
         );
       case 'error':
         return section(
           'pending failed',
           el('p', { class: 'error', text: `Could not write the story. ${state.message}` }),
-          button('Try again', { type: 'retry-story' }),
+          el('p', { class: 'actions' }, button('Try again', { type: 'retry-story' }), ' ', button('Settings', { type: 'open-settings' }, 'secondary')),
         );
       default:
         return section('pending', el('p', { text: 'No story for these lines.' }));

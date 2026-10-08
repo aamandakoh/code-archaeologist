@@ -2,7 +2,7 @@
   "name": "code-archaeologist",
   "displayName": "Code Archaeologist",
   "description": "Select code and see how it evolved commit by commit, and why.",
-  "version": "0.6.0",
+  "version": "0.7.0",
   "private": true,
   "publisher": "code-archaeologist",
   "license": "MIT",
@@ -27,6 +27,12 @@
         "category": "Code Archaeologist"
       },
       {
+        "command": "codeArchaeologist.openSettings",
+        "title": "Open settings",
+        "category": "Code Archaeologist",
+        "icon": "$(gear)"
+      },
+      {
         "command": "codeArchaeologist.setApiKey",
         "title": "Set LLM API key",
         "category": "Code Archaeologist"
@@ -43,6 +49,13 @@
       }
     ],
     "menus": {
+      "editor/title": [
+        {
+          "command": "codeArchaeologist.openSettings",
+          "when": "activeWebviewPanelId == codeArchaeologist",
+          "group": "navigation"
+        }
+      ],
       "editor/context": [
         {
           "command": "codeArchaeologist.trace",
