@@ -275,7 +275,9 @@ class GitHubApi implements Forge {
   /** GET a path under the repo. Resolves undefined for 404 (unknown commit or PR, or a private repo). */
   private async get<T>(route: string): Promise<T | undefined> {
     if (this.fatal) throw this.fatal;
-    const cacheKey = `${this.repo.owner}/${this.repo.repo}${route}`;
+    // Kept apart by whether a token was sent: GitHub answers 404 for a private repo without one,
+    // and that 404 must not hide the repo for a week once a token is set.
+    const cacheKey = `${this.options.token ? 'token' : 'anon'}:${this.repo.owner}/${this.repo.repo}${route}`;
     const cached = await this.options.cache?.get(cacheKey);
     if (cached) return (cached.data ?? undefined) as T | undefined;
 

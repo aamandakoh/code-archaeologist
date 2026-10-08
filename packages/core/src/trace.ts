@@ -134,7 +134,7 @@ async function hasUncommittedChanges(git: GitRunner, root: string, relativePath:
 
 /** owner/repo for a github.com `origin` remote (https or ssh form), else undefined. */
 export function parseGitHubRemote(url: string): { owner: string; repo: string } | undefined {
-  const match = /github\.com[:/]([^/\s]+)\/([^/\s]+?)(?:\.git)?\/?$/.exec(url.trim());
+  const match = /^(?:(?:https?|ssh|git):\/\/)?(?:[^@/\s]+@)?github\.com(?::\d+)?[:/]([^/\s]+)\/([^/\s]+?)(?:\.git)?\/?$/.exec(url.trim());
   return match ? { owner: match[1]!, repo: match[2]! } : undefined;
 }
 

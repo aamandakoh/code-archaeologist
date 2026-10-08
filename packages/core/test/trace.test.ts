@@ -104,5 +104,8 @@ describe('parseGitHubRemote', () => {
       repo: 'code-archaeologist',
     });
     expect(parseGitHubRemote('https://gitlab.com/a/b.git')).toBeUndefined();
+    expect(parseGitHubRemote('ssh://git@github.com:22/a/b.git')).toEqual({ owner: 'a', repo: 'b' });
+    expect(parseGitHubRemote('https://notgithub.com/a/b.git')).toBeUndefined();
+    expect(parseGitHubRemote('https://evil.example/github.com/a/b.git')).toBeUndefined();
   });
 });

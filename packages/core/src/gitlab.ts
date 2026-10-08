@@ -6,6 +6,11 @@ import type { LinkedIssue, Review, Timeline } from './types.js';
 export type GitLabOptions = {
   /** A token with read_api. Needed for private projects, which GitLab reports as not found without one. */
   token?: string;
+  /**
+   * The self-hosted GitLab the token is for. The token goes only to gitlab.com and this host, never
+   * to another server that merely has "gitlab" in its name.
+   */
+  gitlabUrl?: string;
   /** When given, every response is kept on disk, so a rerun makes no requests. */
   cache?: GitHubCache;
   signal?: AbortSignal;
@@ -25,7 +30,28 @@ const KEEP = { bodyChars: 4_000, commentChars: 1_500, issueBodyChars: 800 };
 export async function addGitLabContext(timeline: Timeline, options: GitLabOptions = {}): Promise<Timeline> {
   const project = timeline.gitlab;
   if (!project || timeline.steps.length === 0) return timeline;
-  return addForgeContext(timeline, new GitLabApi(project, options), options, 'gitlab');
+  const allowed = tokenAllowed(project.url, options.gitlabUrl);
+  const scoped = { ...options, token: allowed ? options.token : undefined };
+  const out = await addForgeContext(timeline, new GitLabApi(project, scoped), scoped, 'gitlab');
+  if (options.token && !allowed && out.context) {
+    const host = new URL(project.url).host;
+    const note = `Your GitLab token was not sent to ${host}. To use it there, set codeArchaeologist.gitlabUrl (CLI: --gitlab-url) to ${project.url}.`;
+    out.context.error = out.context.error ? `${note} ${out.context.error}` : note;
+  }
+  return out;
+}
+
+/** True when a GitLab token may be sent to `url`: gitlab.com, or the GitLab the user set in `gitlabUrl`. */
+export function tokenAllowed(url: string, gitlabUrl?: string): boolean {
+  const origin = (u: string | undefined) => {
+    try {
+      return u?.trim() ? new URL(u.trim()).origin : undefined;
+    } catch {
+      return undefined;
+    }
+  };
+  const target = origin(url);
+  return target !== undefined && (target === 'https://gitlab.com' || target === origin(gitlabUrl));
 }
 
 /** The merge request number GitLab wrote into a merge commit: "See merge request group/project!123". */

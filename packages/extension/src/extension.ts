@@ -71,7 +71,7 @@ export function activate(context: vscode.ExtensionContext): void {
         onProgress: (message: string) => panel.post({ type: 'progress', message: `${message}…` }),
       };
       timeline = raw.gitlab
-        ? await addGitLabContext(raw, { ...options, token: await gitlabToken() })
+        ? await addGitLabContext(raw, { ...options, token: await gitlabToken(), gitlabUrl: vscode.workspace.getConfiguration('codeArchaeologist').get<string>('gitlabUrl') || undefined })
         : await addGitHubContext(raw, { ...options, token: await githubToken() });
     } catch (error) {
       if (controller.signal.aborted) return;

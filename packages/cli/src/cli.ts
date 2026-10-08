@@ -97,7 +97,7 @@ async function main(argv: string[]): Promise<number> {
   if (!values['no-github'] && (timeline.github || timeline.gitlab)) {
     const options = { cache: cacheDir ? new GitHubCache(path.join(cacheDir, 'github')) : undefined, onProgress: progress };
     timeline = timeline.gitlab
-      ? await addGitLabContext(timeline, { ...options, token: process.env.GITLAB_TOKEN || undefined })
+      ? await addGitLabContext(timeline, { ...options, token: process.env.GITLAB_TOKEN || undefined, gitlabUrl: values['gitlab-url'] ?? process.env.GITLAB_URL })
       : await addGitHubContext(timeline, { ...options, token: process.env.GITHUB_TOKEN || process.env.GH_TOKEN || undefined });
     if (timeline.context?.error && !values.json) console.error(`warning: ${timeline.context.error}`);
   }

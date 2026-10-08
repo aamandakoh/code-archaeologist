@@ -110,6 +110,17 @@ describe('addGitHubContext', () => {
     expect(b.steps).toEqual(a.steps);
   });
 
+  test('a 404 cached without a token is read again once a token is set', async () => {
+    const cache = new GitHubCache(mkdtempSync(path.join(tmpdir(), 'gh-cache-')));
+    const hidden = fakeGitHub(angularRoutes, { status: () => 404 });
+    const a = await addGitHubContext(timeline, { fetch: hidden.fetch, cache });
+    expect(a.context?.prs).toBe(0);
+    const authed = fakeGitHub(angularRoutes);
+    const b = await addGitHubContext(timeline, { fetch: authed.fetch, cache, token: 't' });
+    expect(authed.calls.length).toBeGreaterThan(0);
+    expect(b.context?.prs).toBeGreaterThan(0);
+  });
+
   test('does nothing without a GitHub remote', async () => {
     const { fetch, calls } = fakeGitHub(angularRoutes);
     const out = await addGitHubContext({ ...timeline, github: undefined }, { fetch });

@@ -1,5 +1,5 @@
 import { describe, expect, test } from 'vitest';
-import { addGitLabContext, buildStoryPrompt, gitlabLinkedRefs, mrFromMessage, parseGitLabRemote, type Timeline } from '../src/index.js';
+import { addGitLabContext, buildStoryPrompt, tokenAllowed, gitlabLinkedRefs, mrFromMessage, parseGitLabRemote, type Timeline } from '../src/index.js';
 
 const project = { url: 'https://gitlab.example.com', project: 'platform/billing/api' };
 
@@ -94,7 +94,7 @@ describe('addGitLabContext', () => {
       const route = String(url).slice(base.length);
       return route in routes ? new Response(JSON.stringify(routes[route])) : new Response('{"message":"404 Not found"}', { status: 404 });
     }) as typeof globalThis.fetch;
-    const out = await addGitLabContext(timeline, { token: 't', fetch });
+    const out = await addGitLabContext(timeline, { token: 't', gitlabUrl: 'https://gitlab.example.com/', fetch });
 
     expect(headers[0]!['private-token']).toBe('t');
     expect(out.context).toEqual({ source: 'gitlab', token: true, prs: 2, reviews: 3, issues: 2 });
@@ -107,6 +107,20 @@ describe('addGitLabContext', () => {
     expect(revert!.pr?.number).toBe(6);
     expect(revert!.reviews[0]).toMatchObject({ body: 'This breaks invoices in EUR, revert it', on: 5 });
     expect(buildStoryPrompt(out).ids).toEqual(expect.arrayContaining(['pr:5', 'pr:6', 'issue:3']));
+  });
+
+  test('keeps the token from a host that is neither gitlab.com nor gitlabUrl', async () => {
+    const headers: (Record<string, string> | undefined)[] = [];
+    const fetch = (async (url: string, init?: RequestInit) => {
+      headers.push(init?.headers as Record<string, string>);
+      const route = String(url).slice(base.length);
+      return route in routes ? new Response(JSON.stringify(routes[route])) : new Response('{}', { status: 404 });
+    }) as typeof globalThis.fetch;
+    const out = await addGitLabContext(timeline, { token: 't', fetch });
+    expect(headers.length).toBeGreaterThan(0);
+    expect(headers.every((h) => h?.['private-token'] === undefined)).toBe(true);
+    expect(out.context?.token).toBe(false);
+    expect(out.context?.error).toMatch(/token was not sent to gitlab\.example\.com/);
   });
 
   test('reads what it can without a token when comments need one', async () => {
@@ -126,4 +140,13 @@ describe('addGitLabContext', () => {
     const out = await addGitLabContext(timeline, { fetch });
     expect(out.context?.error).toMatch(/could not find platform\/billing\/api on gitlab\.example\.com\. If it is private, set a GitLab token/);
   });
+});
+
+test('tokenAllowed only trusts gitlab.com and the configured GitLab', () => {
+  expect(tokenAllowed('https://gitlab.com')).toBe(true);
+  expect(tokenAllowed('https://gitlab.example.com')).toBe(false);
+  expect(tokenAllowed('https://gitlab.example.com', 'https://gitlab.example.com/')).toBe(true);
+  expect(tokenAllowed('https://corp.example/gitlab', 'https://corp.example/gitlab')).toBe(true);
+  expect(tokenAllowed('https://gitlab.com.evil.example')).toBe(false);
+  expect(tokenAllowed('https://gitlab.example.com', 'not a url')).toBe(false);
 });

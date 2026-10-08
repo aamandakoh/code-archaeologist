@@ -108,7 +108,9 @@ Merge requests show as `!12`. Remotes on gitlab.com or a host with "gitlab" in i
 on their own; for another self-hosted host set `codeArchaeologist.gitlabUrl` (CLI:
 `--gitlab-url` or `GITLAB_URL`). Private projects, and comments even on public gitlab.com
 projects, need a personal access token with `read_api`: **Code Archaeologist: Set GitLab token**
-in VS Code, or `GITLAB_TOKEN` for the CLI.
+in VS Code, or `GITLAB_TOKEN` for the CLI. The token is sent only to gitlab.com and to the GitLab
+in `codeArchaeologist.gitlabUrl`, so a repository cloned from some other "gitlab" host is read
+without it; set `gitlabUrl` to that host to use your token there.
 
 ## AI story
 

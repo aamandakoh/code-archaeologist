@@ -94,7 +94,11 @@ function el<K extends keyof HTMLElementTagNameMap>(
   const node = document.createElement(tag);
   if (props.class) node.className = props.class;
   if (props.text !== undefined) node.textContent = props.text;
-  for (const [key, value] of Object.entries(props.attrs ?? {})) node.setAttribute(key, value);
+  for (const [key, value] of Object.entries(props.attrs ?? {})) {
+    // Links come from GitHub, GitLab or a cached answer; only web links are followed.
+    if (key === 'href' && !/^https?:\/\//i.test(value)) continue;
+    node.setAttribute(key, value);
+  }
   for (const child of children) if (child) node.append(child);
   return node;
 }

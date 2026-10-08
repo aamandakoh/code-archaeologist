@@ -41,4 +41,8 @@ Code on GitLab works the same way, with merge requests in place of pull requests
 Archaeologist: Set GitLab token** with a personal access token that has the `read_api` scope (GitLab
 needs one for private projects and for comments). gitlab.com and hosts named like
 `gitlab.example.com` are recognised from the `origin` remote; for any other self-hosted GitLab,
-set `codeArchaeologist.gitlabUrl` to its address.
+set `codeArchaeologist.gitlabUrl` to its address. The token is sent only to gitlab.com and to the
+GitLab in that setting, so for a self-hosted GitLab set it even when its name has "gitlab" in it.
+
+The LLM API URL and provider and the GitLab URL are read from your user settings only, never from a
+workspace's `.vscode/settings.json`, so a repository you open cannot send your keys elsewhere.

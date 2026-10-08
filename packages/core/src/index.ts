@@ -36,4 +36,4 @@ export {
   type Forge,
   type ForgeRef,
 } from './github.js';
-export { addGitLabContext, parseGitLabRemote, gitlabLinkedRefs, mrFromMessage, GitLabError, type GitLabOptions } from './gitlab.js';
+export { addGitLabContext, parseGitLabRemote, gitlabLinkedRefs, mrFromMessage, tokenAllowed, GitLabError, type GitLabOptions } from './gitlab.js';
