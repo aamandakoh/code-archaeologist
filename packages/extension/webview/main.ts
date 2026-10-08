@@ -312,14 +312,17 @@ function renderStep(t: Timeline, step: Step, animate: boolean): HTMLElement {
   const gap = previous ? elapsed(previous.commit.date, commit.date) : 'first version';
 
   const fileUrl = fileAtCommit(t, step);
+  // Every link for the commit on one line: the commit, the PR or MR that merged it, the file then.
   const links = el(
     'p',
-    { class: 'meta' },
+    { class: 'meta links' },
     commitLink(t, commit.sha),
-    ` · ${commit.author} · ${shortDate(commit.date)}`,
+    step.pr && ' · ',
+    step.pr && el('a', { class: 'pr', text: `${refLabel(t, 'pr', step.pr.number)} ${step.pr.title}`, attrs: { href: step.pr.url, title: `Open the ${forge(t).pr}` } }),
     fileUrl && ' · ',
     fileUrl && el('a', { text: 'file at this commit', attrs: { href: fileUrl } }),
   );
+  const who = el('p', { class: 'meta', text: `${commit.author} · ${shortDate(commit.date)}` });
 
   return el(
     'article',
@@ -332,10 +335,11 @@ function renderStep(t: Timeline, step: Step, animate: boolean): HTMLElement {
     ),
     el('h3', { text: subject(commit.message) }),
     links,
+    who,
+    body && el('details', { class: 'body' }, el('summary', { text: 'Full commit message' }), el('pre', { text: body })),
     renderNote(t, step),
     renderCode(step, animate),
     renderEvidence(t, step),
-    body && el('details', { class: 'body' }, el('summary', { text: 'Full commit message' }), el('pre', { text: body })),
   );
 }
 
@@ -623,11 +627,11 @@ function hostOf(url: string): string {
 
 /** The PR, linked issues and review discussion behind one commit. */
 function renderEvidence(t: Timeline, step: Step): HTMLElement | undefined {
-  if (!step.pr && step.issues.length === 0 && step.reviews.length === 0) return undefined;
+  // The commit's own PR or MR is in the links line at the top of the card.
+  if (step.issues.length === 0 && step.reviews.length === 0) return undefined;
   const links = el(
     'p',
     { class: 'evidence-links' },
-    step.pr && el('a', { class: 'pr', attrs: { href: step.pr.url, title: forge(t).pr } }, el('span', { class: 'chip', text: refLabel(t, 'pr', step.pr.number) }), ` ${step.pr.title}`),
     ...step.issues.map((issue) =>
       el(
         'a',
@@ -675,7 +679,9 @@ function renderNote(t: Timeline, step: Step): HTMLElement | undefined {
   if (!t.story) return undefined;
   const note = t.story.steps.find((n) => n.commit === step.commit.sha);
   if (!note) return el('p', { class: 'note pending', text: 'No note for this commit.' });
-  return el('p', { class: 'note' }, el('span', { text: note.note }), ' ', citationChips(t, note));
+  // The commit itself and its own PR or MR are linked at the top of the card, so their chips would only repeat them.
+  const own = (c: string) => (c.startsWith('commit:') && step.commit.sha.startsWith(c.slice(7).toLowerCase())) || (step.pr !== undefined && c === `pr:${step.pr.number}`);
+  return el('p', { class: 'note' }, el('span', { text: note.note }), ' ', citationChips(t, { ...note, citations: note.citations.filter((c) => !own(c)) }));
 }
 
 /** Chips linking each citation to GitHub or GitLab, or an "unverified" marker when none survived the check. */

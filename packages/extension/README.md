@@ -20,9 +20,10 @@ commit. Then a one-sentence summary and a Low / Medium / High risk verdict with 
 reasons (click one to jump to the commit it cites; the reasons about the commit on screen light
 up as you scrub; "Hide reasons" folds the card down to the verdict) and things to check before
 you change it.
-Each commit gets a short AI note with chips linking to the commits, PRs, review comments and
-issues it cites. Under it are the commit's pull request, linked issues and review comments, read
-from GitHub or GitLab.
+Each commit card starts with its links on one line: the commit, the pull request or merge request
+that merged it, and the file at that commit. Then the full commit message, and a short AI note with
+chips for the other evidence it cites (issues, review comments, other commits). Under the diff are
+the linked issues and review comments, read from GitHub or GitLab.
 
 All of the settings below are also on one screen: run **Code Archaeologist: Open settings screen**
 (or the gear in the panel's title bar). It has one-click setups for Gemini, the free Gemini
