@@ -701,13 +701,12 @@ function renderEvidence(t: Timeline, step: Step): HTMLElement | undefined {
   return el('div', { class: 'evidence' }, links, comments);
 }
 
-function renderNote(t: Timeline, step: Step): HTMLElement {
+/** Nothing without a story: the story section at the top already says why there isn't one. */
+function renderNote(t: Timeline, step: Step): HTMLElement | undefined {
   if (ai.status === 'writing' || ai.status === 'reading') return el('p', { class: 'note pending', text: 'Writing the note for this commit…' });
-  const note = t.story?.steps.find((n) => n.commit === step.commit.sha);
-  if (!note) {
-    const text = t.story ? 'No note for this commit.' : 'The AI note for this commit appears here once the story is written.';
-    return el('p', { class: 'note pending', text });
-  }
+  if (!t.story) return undefined;
+  const note = t.story.steps.find((n) => n.commit === step.commit.sha);
+  if (!note) return el('p', { class: 'note pending', text: 'No note for this commit.' });
   return el('p', { class: 'note' }, el('span', { text: note.note }), ' ', citationChips(t, note));
 }
 

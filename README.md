@@ -27,7 +27,7 @@ from commit messages and diffs alone.
 
 ![The Code Archaeologist panel: a high-risk verdict with cited reasons, the commit timeline, and the 2023 commit's note and code](docs/panel.png)
 
-The settings screen (**Code Archaeologist: Open settings**), with the default Gemini provider and a
+The settings screen (**Code Archaeologist: Open settings screen**), with the default Gemini provider and a
 saved key and GitHub token. Keys and tokens are never shown.
 
 ![The Code Archaeologist settings screen: AI model, GitHub and GitLab sections](docs/settings.png)
@@ -46,7 +46,7 @@ Reload VS Code if asked. Select some lines in a file inside a git repository, ri
 
 ### Settings
 
-Run **Code Archaeologist: Open settings** (or the gear on the panel) to set these. Keys and tokens
+Run **Code Archaeologist: Open settings screen** (or the gear on the panel) to set these. Keys and tokens
 are kept in VS Code secret storage, and **Test connection** checks them before you save.
 
 | Setting | Needed? | What it does |
@@ -164,8 +164,9 @@ Google AI Studio's free tier:
   `pr:49659`). Citations that match nothing are dropped, and a claim left with none is shown as
   **unverified**. When the evidence gives no reason, the note says "No reason recorded."
 
-In VS Code, **Code Archaeologist: Open settings** shows all of this as a form, with presets and
-a connection test. Or set the key with **Code Archaeologist: Set LLM API key** (kept in secret storage;
+In VS Code, **Code Archaeologist: Open settings screen** shows all of this as a form, with presets and
+a connection test. The panel's Settings buttons, its gear and the extension's gear menu in the
+Extensions view all open it. Or set the key with **Code Archaeologist: Set LLM API key** (kept in secret storage;
 `GEMINI_API_KEY` in the environment also works) and the model with the `codeArchaeologist.model`
 setting.
 
@@ -177,6 +178,14 @@ and needs no key for a server on your own `baseUrl`. If the server refuses a JSO
 client falls back to plain JSON mode. Without a key the panel shows the raw history and a button to add one. The free tier is
 sometimes overloaded (HTTP 503); the client retries with backoff, and a full trace can take a
 minute or two.
+
+**Free options.** Each Gemini model has its own free daily quota, so when `gemini-3.5-flash`
+runs out, `gemini-3.1-flash-lite` on the same key keeps going (the **Gemini Flash-Lite (free)**
+preset). Off Google, Mistral's free Experiment plan (a verified phone number, no card) takes the
+whole prompt of a long trace: OpenAI-compatible, `https://api.mistral.ai/v1`, model
+`mistral-small-latest` (the **Mistral (free plan)** preset); requests on that plan may be used for
+training. OpenRouter's `:free` models allow about 50 requests a day. Groq's free tier caps tokens
+per minute below what a long trace sends, and a local Ollama model is free but slow on a laptop.
 
 ## Demo snippet
 

@@ -7,14 +7,34 @@ const app = document.getElementById('app')!;
 
 const DEFAULT_URL = { gemini: 'https://generativelanguage.googleapis.com/v1beta', openai: 'https://api.openai.com/v1' };
 
-/** One click fills the format and URL; the model stays the reader's choice. */
-const PRESETS: { label: string; provider: SettingsValues['provider']; baseUrl: string; hint: string }[] = [
+/** One click fills the format and URL, and the model where a preset names one; otherwise the model stays the reader's choice. */
+const PRESETS: { label: string; provider: SettingsValues['provider']; baseUrl: string; model?: string; hint: string }[] = [
   { label: 'Gemini', provider: 'gemini', baseUrl: '', hint: 'Key from aistudio.google.com/apikey. Model defaults to gemini-3.5-flash.' },
+  {
+    label: 'Gemini Flash-Lite (free)',
+    provider: 'gemini',
+    baseUrl: '',
+    model: 'gemini-3.1-flash-lite',
+    hint: 'Same Gemini key. Each Gemini model has its own free daily quota, and Flash-Lite has the largest.',
+  },
+  {
+    label: 'Mistral (free plan)',
+    provider: 'openai',
+    baseUrl: 'https://api.mistral.ai/v1',
+    model: 'mistral-small-latest',
+    hint: 'Key from console.mistral.ai on the free Experiment plan: a verified phone number, no card. Requests on that plan may be used for training.',
+  },
   { label: 'OpenAI', provider: 'openai', baseUrl: '', hint: 'Key from platform.openai.com. Enter a model id.' },
-  { label: 'OpenRouter', provider: 'openai', baseUrl: 'https://openrouter.ai/api/v1', hint: 'Key from openrouter.ai. Model ids look like vendor/model.' },
+  { label: 'OpenRouter', provider: 'openai', baseUrl: 'https://openrouter.ai/api/v1', hint: 'Key from openrouter.ai. Model ids look like vendor/model; ids ending in :free cost nothing, about 50 requests a day.' },
   { label: 'Ollama (local)', provider: 'openai', baseUrl: 'http://localhost:11434/v1', hint: 'No key needed. Enter a model you have pulled.' },
   { label: 'LM Studio (local)', provider: 'openai', baseUrl: 'http://localhost:1234/v1', hint: 'No key needed. Enter the model loaded in LM Studio.' },
 ];
+
+/** The preset the form matches: same format and URL, and the preset's model if it names one. */
+function activePreset(v: SettingsValues): (typeof PRESETS)[number] | undefined {
+  const same = PRESETS.filter((p) => p.provider === v.provider && p.baseUrl === v.baseUrl.trim().replace(/\/+$/, ''));
+  return same.find((p) => p.model && p.model === v.model.trim()) ?? same.find((p) => !p.model);
+}
 
 let values: SettingsValues | undefined;
 let secrets: SecretState | undefined;
@@ -59,11 +79,14 @@ function render(): void {
     'div',
     { class: 'presets' },
     ...PRESETS.map((p) => {
-      const on = p.provider === v.provider && p.baseUrl === v.baseUrl.replace(/\/+$/, '');
+      const on = p === activePreset(v);
       const b = el('button', { class: on ? 'preset on' : 'preset', text: p.label, attrs: { type: 'button', title: p.hint } });
       b.addEventListener('click', () => {
         v.provider = p.provider;
         v.baseUrl = p.baseUrl;
+        // Leaving a preset that set the model clears it, so a Mistral id isn't sent to Gemini.
+        if (p.model) v.model = p.model;
+        else if (PRESETS.some((q) => q.model === v.model.trim())) v.model = '';
         render();
         document.getElementById('preset-hint')!.textContent = p.hint;
         if (p.provider === 'openai' && !v.model) document.getElementById('model')?.focus();

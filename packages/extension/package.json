@@ -2,7 +2,7 @@
   "name": "code-archaeologist",
   "displayName": "Code Archaeologist",
   "description": "Select code and see how it evolved commit by commit, and why.",
-  "version": "0.8.0",
+  "version": "0.9.0",
   "private": true,
   "publisher": "code-archaeologist",
   "license": "MIT",
@@ -28,7 +28,7 @@
       },
       {
         "command": "codeArchaeologist.openSettings",
-        "title": "Open settings",
+        "title": "Open settings screen",
         "category": "Code Archaeologist",
         "icon": "$(gear)"
       },
@@ -54,6 +54,13 @@
           "command": "codeArchaeologist.openSettings",
           "when": "activeWebviewPanelId == codeArchaeologist",
           "group": "navigation"
+        }
+      ],
+      "extension/context": [
+        {
+          "command": "codeArchaeologist.openSettings",
+          "when": "extension == code-archaeologist.code-archaeologist",
+          "group": "2_configure"
         }
       ],
       "editor/context": [
@@ -82,24 +89,28 @@
             "OpenAI-compatible chat completions API: OpenAI, OpenRouter, Ollama, LM Studio, vLLM, LiteLLM and similar"
           ],
           "default": "gemini",
-          "markdownDescription": "Request format of the LLM API that writes the notes, summary and verdict."
+          "order": 0,
+          "markdownDescription": "Request format of the LLM API that writes the notes, summary and verdict.\n\nEasier: [open the Code Archaeologist settings screen](command:codeArchaeologist.openSettings), with one-click presets, a connection test and the keys and tokens in one place."
         },
         "codeArchaeologist.baseUrl": {
           "type": "string",
+          "order": 1,
           "scope": "application",
           "default": "",
           "markdownDescription": "LLM API URL, up to the version path, e.g. `https://openrouter.ai/api/v1` or `http://localhost:11434/v1` for the OpenAI-compatible format. Empty uses `https://generativelanguage.googleapis.com/v1beta` for Gemini and `https://api.openai.com/v1` for OpenAI-compatible."
         },
         "codeArchaeologist.gitlabUrl": {
           "type": "string",
+          "order": 3,
           "scope": "application",
           "default": "",
           "markdownDescription": "Your self-hosted GitLab, e.g. `https://git.example.com`. Only needed when its host name has no \"gitlab\" in it: remotes on gitlab.com or a host like `gitlab.example.com` are found on their own. Merge requests, comments and issues are read with the token set by **Code Archaeologist: Set GitLab token** (or `GITLAB_TOKEN`), which needs the `read_api` scope."
         },
         "codeArchaeologist.model": {
           "type": "string",
+          "order": 2,
           "default": "",
-          "markdownDescription": "Model that writes the notes, summary and verdict. Empty uses `gemini-3.5-flash` with the Gemini API; the OpenAI-compatible format needs a model id from your API. The API key is set with **Code Archaeologist: Set LLM API key**, or read from `GEMINI_API_KEY` or `OPENAI_API_KEY`; a server set in `codeArchaeologist.baseUrl` may need none. Pull requests, reviews and issues are read from GitHub with the token set by **Code Archaeologist: Set GitHub token** (or `GITHUB_TOKEN`); without one GitHub allows 60 requests an hour."
+          "markdownDescription": "Model that writes the notes, summary and verdict. Empty uses `gemini-3.5-flash` with the Gemini API; each Gemini model has its own free daily quota, and `gemini-3.1-flash-lite` has the largest; the OpenAI-compatible format needs a model id from your API. The API key is set with **Code Archaeologist: Set LLM API key**, or read from `GEMINI_API_KEY` or `OPENAI_API_KEY`; a server set in `codeArchaeologist.baseUrl` may need none. Pull requests, reviews and issues are read from GitHub with the token set by **Code Archaeologist: Set GitHub token** (or `GITHUB_TOKEN`); without one GitHub allows 60 requests an hour."
         }
       }
     }

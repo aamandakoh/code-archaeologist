@@ -484,7 +484,7 @@ async function send<T>(options: ClientOptions, req: Request<T>, signal?: AbortSi
         : response.status === 404
           ? ' Check the model name in the codeArchaeologist.model setting and the API URL in codeArchaeologist.baseUrl.'
           : daily
-            ? ` The free tier's daily quota for ${model} is used up${wait ? `; it resets in ${wait.replace(/\.\d+s$/, 's')}` : ''}. Pick another model in the codeArchaeologist.model setting, or try later.`
+            ? ` The free tier's daily quota for ${model} is used up${wait ? `; it resets in ${wait.replace(/\.\d+s$/, 's')}` : ''}. Each model has its own quota, so pick another model in Settings${name === 'Gemini' && !/flash-lite/.test(model) ? ', e.g. gemini-3.1-flash-lite' : ''}, or try later.`
             : response.status === 429
               ? ' The API is rate limited; try again in a minute.'
               : '';
