@@ -1,7 +1,8 @@
 import type { Step, Story, Timeline } from '@code-archaeologist/core/src/types.js';
 import type { AiState, FromWebview, ToWebview } from '../src/messages';
 
-type ViewState = { showRemoved?: boolean; storyCollapsed?: boolean; speed?: number };
+/** `showRemoved` is on unless turned off. */
+type ViewState = { showRemoved?: boolean; storyCollapsed?: boolean };
 
 declare function acquireVsCodeApi(): {
   postMessage(message: FromWebview): void;
@@ -18,18 +19,11 @@ let ai: AiState = { status: 'writing' };
 let current = 0;
 /** Panel preferences that survive the panel being hidden and shown again. */
 let view: ViewState = vscode.getState() ?? {};
-/** The pending auto-advance while the time-lapse plays. */
-let playing: ReturnType<typeof setTimeout> | undefined;
-
-/** Milliseconds each commit stays on screen while playing, at 1x. */
-const STEP_MS = 2600;
-const SPEEDS = [1, 2, 4];
 
 window.addEventListener('message', (event: MessageEvent<ToWebview>) => {
   const message = event.data;
   switch (message.type) {
     case 'loading':
-      stop();
       timeline = undefined;
       renderLoading(`${message.file}:${message.range[0]}-${message.range[1]}`, message.message);
       break;
@@ -42,19 +36,15 @@ window.addEventListener('message', (event: MessageEvent<ToWebview>) => {
       const same = timeline !== undefined && sameTrace(timeline, message.timeline) && document.getElementById('story');
       timeline = message.timeline;
       ai = message.ai;
-      if (!same) {
-        stop();
-        current = Math.max(0, timeline.steps.length - 1);
-      }
+      if (!same) current = Math.max(0, timeline.steps.length - 1);
       // GitHub context or the story arrived for the lines on screen: redraw in place, keep the
-      // slider (and a playing time-lapse) where they are.
+      // slider where it is.
       const scroll = window.scrollY;
       renderTimeline(timeline);
       if (same) window.scrollTo(0, scroll);
       break;
     }
     case 'error':
-      stop();
       timeline = undefined;
       renderError(message.message);
       break;
@@ -66,17 +56,12 @@ document.addEventListener('keydown', (event) => {
   if (!timeline || timeline.steps.length === 0 || target.tagName === 'INPUT' || event.metaKey || event.ctrlKey || event.altKey) return;
   const go = (index: number) => {
     event.preventDefault();
-    stop();
     select(index, index === current + 1);
   };
   if (event.key === 'ArrowLeft') go(current - 1);
   else if (event.key === 'ArrowRight') go(current + 1);
   else if (event.key === 'Home') go(0);
   else if (event.key === 'End') go(timeline.steps.length - 1);
-  else if (event.key === ' ' && !['BUTTON', 'SUMMARY', 'A'].includes(target.tagName)) {
-    event.preventDefault();
-    togglePlay();
-  }
 });
 
 reducedMotion.addEventListener('change', () => timeline && select(current));
@@ -148,16 +133,17 @@ function renderTimeline(t: Timeline) {
     { class: 'summary' },
     el('h1', { text: `${t.file}:${start}-${end}` }),
     el('p', { class: 'meta', text: `${plural(t.steps.length, 'commit')} · ${span}${t.context ? ` · ${plural(t.context.prs, forge(t).pr)} from ${forge(t).name}` : ''}` }),
+    renderPrList(t),
     noise,
   );
 
-  // Pinned above the history so the verdict is the first thing you read.
+  // Under the file name, above the history, so the verdict is read early but scrolls away.
   const story = renderStory(t, ai);
 
   const warnings = t.warnings.length > 0 && el('div', { class: 'warnings' }, ...t.warnings.map((w) => el('p', { text: w })));
 
   if (t.steps.length === 0) {
-    app.replaceChildren(story, header, warnings || '', el('p', { class: 'status', text: 'No commits touched these lines.' }));
+    app.replaceChildren(header, story, warnings || '', el('p', { class: 'status', text: 'No commits touched these lines.' }));
     return;
   }
 
@@ -165,7 +151,6 @@ function renderTimeline(t: Timeline) {
     attrs: { type: 'range', min: '0', max: String(t.steps.length - 1), value: String(current), id: 'slider', 'aria-label': 'Commit' },
   });
   slider.addEventListener('input', () => {
-    stop();
     select(Number(slider.value), Number(slider.value) === current + 1);
   });
   const button = (id: string, text: string, label: string, onClick: () => void) => {
@@ -173,24 +158,10 @@ function renderTimeline(t: Timeline) {
     b.addEventListener('click', onClick);
     return b;
   };
-  const prev = button('prev', '‹', 'Previous commit (←)', () => {
-    stop();
-    select(current - 1);
-  });
-  const next = button('next', '›', 'Next commit (→)', () => {
-    stop();
-    select(current + 1, true);
-  });
-  const play = button('play', '▶', 'Play the history (Space)', togglePlay);
-  play.classList.add('play');
-  const speed = button('speed', `${view.speed ?? 1}×`, 'Playback speed', () => {
-    const i = SPEEDS.indexOf(view.speed ?? 1);
-    saveView({ speed: SPEEDS[(i + 1) % SPEEDS.length] });
-    speed.textContent = `${view.speed}×`;
-  });
-  speed.classList.add('speed');
+  const prev = button('prev', '‹', 'Previous commit (←)', () => select(current - 1));
+  const next = button('next', '›', 'Next commit (→)', () => select(current + 1, true));
   const removedToggle = el('input', { attrs: { type: 'checkbox', id: 'show-removed' } });
-  removedToggle.checked = Boolean(view.showRemoved);
+  removedToggle.checked = view.showRemoved ?? true;
   removedToggle.addEventListener('change', () => {
     saveView({ showRemoved: removedToggle.checked });
     select(current);
@@ -202,7 +173,6 @@ function renderTimeline(t: Timeline) {
     el(
       'div',
       { class: 'controls' },
-      play,
       prev,
       el('div', { class: 'scrubber' }, slider, renderTrack(t)),
       next,
@@ -211,9 +181,8 @@ function renderTimeline(t: Timeline) {
     el(
       'div',
       { class: 'options' },
-      speed,
       el('label', { attrs: { for: 'show-removed' } }, removedToggle, ' Keep removed lines visible'),
-      el('span', { class: 'hint', text: 'Space plays · ← → step · Home End jump' }),
+      el('span', { class: 'hint', text: 'Click a dot · ← → step · Home End jump' }),
     ),
     el('div', { attrs: { id: 'step' } }),
   );
@@ -235,23 +204,44 @@ function renderTimeline(t: Timeline) {
           el('span', { class: 'subject', text: subject(step.commit.message) }),
           el('span', { class: 'churn', text: `+${step.addedLines.length} −${step.removedLines.length}` }),
         );
-        row.addEventListener('click', () => {
-          stop();
-          select(index);
-        });
+        row.addEventListener('click', () => select(index));
         row.addEventListener('keydown', (e) => {
-          if (e.key === 'Enter') {
-            stop();
-            select(index);
-          }
+          if (e.key === 'Enter') select(index);
         });
         return row;
       }),
     ),
   );
 
-  app.replaceChildren(story, header, warnings || '', player, list);
+  app.replaceChildren(header, story, warnings || '', player, list);
   select(current);
+}
+
+/** Every PR or merge request behind the traced commits, whether or not a commit message names it. */
+function renderPrList(t: Timeline): HTMLElement | undefined {
+  const prs = new Map<number, { pr: NonNullable<Step['pr']>; commits: number[] }>();
+  t.steps.forEach((step, i) => {
+    if (!step.pr) return;
+    const entry = prs.get(step.pr.number) ?? { pr: step.pr, commits: [] };
+    entry.commits.push(i);
+    prs.set(step.pr.number, entry);
+  });
+  if (prs.size === 0) return undefined;
+  const { name, pr } = forge(t);
+  return el(
+    'details',
+    { class: 'pr-list' },
+    el('summary', { text: `All ${plural(prs.size, pr)}` }),
+    el(
+      'ul',
+      {},
+      ...[...prs.values()].map(({ pr: p, commits }) => {
+        const jump = el('button', { class: 'linklike', text: plural(commits.length, 'commit'), attrs: { title: 'Show the latest commit from it' } });
+        jump.addEventListener('click', () => select(commits.at(-1)!));
+        return el('li', {}, el('a', { attrs: { href: p.url, title: `Open on ${name}` } }, el('span', { class: 'chip', text: refLabel(t, 'pr', p.number) }), ` ${p.title}`), ' · ', jump);
+      }),
+    ),
+  );
 }
 
 /** One dot per commit under the slider, coloured by kind, with a year label where the year changes. */
@@ -259,7 +249,8 @@ function renderTrack(t: Timeline): HTMLElement {
   const cited = citedSteps(t);
   const n = t.steps.length;
   // Matches the thumb width in panel.css, so a dot sits under the thumb when it is on that commit.
-  const at = (i: number) => (n === 1 ? 'calc(50%)' : `calc(var(--thumb) / 2 + (100% - var(--thumb)) * ${i / (n - 1)})`);
+  // A single commit sits where the slider puts its thumb: at the start.
+  const at = (i: number) => `calc(var(--thumb) / 2 + (100% - var(--thumb)) * ${n === 1 ? 0 : i / (n - 1)})`;
   const track = el('div', { class: 'track', attrs: { 'aria-hidden': 'true' } });
   t.steps.forEach((step, i) => {
     const kind = kindOf(step);
@@ -268,10 +259,7 @@ function renderTrack(t: Timeline): HTMLElement {
       attrs: { 'data-index': String(i), title: `${shortDate(step.commit.date)} · ${subject(step.commit.message)}`, tabindex: '-1' },
     });
     dot.style.left = at(i);
-    dot.addEventListener('click', () => {
-      stop();
-      select(i, i === current + 1);
-    });
+    dot.addEventListener('click', () => select(i, i === current + 1));
     track.append(dot);
     const year = step.commit.date.slice(0, 4);
     const prevYear = t.steps[i - 1]?.commit.date.slice(0, 4);
@@ -314,36 +302,6 @@ function select(index: number, animate = false) {
     node.classList.toggle('here', node.getAttribute('data-step') === String(current));
   }
   document.getElementById('step')!.replaceChildren(renderStep(timeline, step, animate && !reducedMotion.matches));
-}
-
-function togglePlay() {
-  if (playing !== undefined) return stop();
-  if (!timeline || timeline.steps.length < 2) return;
-  // From the end, play from the start; otherwise carry on from here.
-  if (current >= timeline.steps.length - 1) select(0);
-  setPlaying(true);
-  const tick = () => {
-    if (!timeline || current >= timeline.steps.length - 1) return stop();
-    select(current + 1, true);
-    playing = current >= timeline.steps.length - 1 ? undefined : setTimeout(tick, STEP_MS / (view.speed ?? 1));
-    if (playing === undefined) setPlaying(false);
-  };
-  playing = setTimeout(tick, STEP_MS / 2 / (view.speed ?? 1));
-}
-
-function stop() {
-  if (playing !== undefined) clearTimeout(playing);
-  playing = undefined;
-  setPlaying(false);
-}
-
-function setPlaying(on: boolean) {
-  const play = document.getElementById('play');
-  if (!play) return;
-  play.textContent = on ? '❚❚' : '▶';
-  play.setAttribute('aria-label', on ? 'Pause (Space)' : 'Play the history (Space)');
-  play.title = play.getAttribute('aria-label')!;
-  play.classList.toggle('on', on);
 }
 
 function renderStep(t: Timeline, step: Step, animate: boolean): HTMLElement {
@@ -415,7 +373,7 @@ function diffRows(step: Step): Row[] {
  * fold away, then the added lines grow in. "Keep removed lines visible" leaves them in place.
  */
 function renderCode(step: Step, animate: boolean): HTMLElement {
-  const keep = Boolean(view.showRemoved);
+  const keep = view.showRemoved ?? true;
   const rows = diffRows(step);
   const removed = rows.filter((r) => r.kind === 'del').length;
   const code = el(
@@ -577,15 +535,11 @@ function renderStory(t: Timeline, state: AiState): HTMLElement {
       if (target !== undefined) {
         item.addEventListener('click', (e) => {
           if ((e.target as HTMLElement).closest('a')) return; // chips open GitHub or GitLab
-          stop();
           select(target);
           document.getElementById('step')?.scrollIntoView({ block: 'nearest', behavior: reducedMotion.matches ? 'auto' : 'smooth' });
         });
         item.addEventListener('keydown', (e) => {
-          if (e.key === 'Enter') {
-            stop();
-            select(target);
-          }
+          if (e.key === 'Enter') select(target);
         });
       }
       return item;

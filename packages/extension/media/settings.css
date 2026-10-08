@@ -24,18 +24,21 @@ section { border-top: 1px solid var(--border); padding: 16px 0 6px; margin-top: 
 .field { margin: 0 0 14px; }
 .field > label { display: block; font-weight: 600; margin-bottom: 4px; }
 
-input, select {
+input, select, textarea {
   box-sizing: border-box; width: 100%; padding: 5px 8px;
   font: inherit; color: var(--vscode-input-foreground);
   background: var(--vscode-input-background);
   border: 1px solid var(--vscode-input-border, var(--border)); border-radius: var(--radius);
 }
 select { color: var(--vscode-dropdown-foreground); background: var(--vscode-dropdown-background); border-color: var(--vscode-dropdown-border, var(--border)); }
-input:focus, select:focus { outline: 1px solid var(--vscode-focusBorder); outline-offset: -1px; }
-input::placeholder { color: var(--vscode-input-placeholderForeground, var(--muted)); }
+input:focus, select:focus, textarea:focus { outline: 1px solid var(--vscode-focusBorder); outline-offset: -1px; }
+input::placeholder, textarea::placeholder { color: var(--vscode-input-placeholderForeground, var(--muted)); }
 
 .row { display: flex; align-items: center; gap: 10px; }
-.row input { flex: 1; }
+.row input, .row textarea { flex: 1; }
+textarea { resize: vertical; font-family: var(--vscode-editor-font-family); }
+.row:has(textarea) { align-items: flex-start; }
+.hint.bad { color: var(--vscode-editorWarning-foreground, #cca700); }
 
 button { font: inherit; cursor: pointer; border: none; border-radius: var(--radius); padding: 5px 14px; }
 button.primary { color: var(--vscode-button-foreground); background: var(--vscode-button-background); }

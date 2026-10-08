@@ -8,6 +8,7 @@ import {
   describeStory,
   describeTimeline,
   modelClient,
+  parseHeaders,
   StoryCache,
   trace,
   TimelineCache,
@@ -32,6 +33,7 @@ Options:
                      (key in OPENAI_API_KEY, optional for local servers)
   --base-url <url>   LLM API URL, e.g. http://localhost:11434/v1 (default: the
                      provider's own API)
+  --header <h>       Extra header on every LLM request, as "Name: value"; repeatable
   --model <id>       Model for --story (default ${DEFAULT_MODEL} for Gemini; needed for openai)
   --cache-dir <dir>  Reuse traces and stories for the same file, range and HEAD
   -h, --help         Show this help`;
@@ -48,6 +50,7 @@ async function main(argv: string[]): Promise<number> {
       story: { type: 'boolean', default: false },
       provider: { type: 'string' },
       'base-url': { type: 'string' },
+      header: { type: 'string', multiple: true },
       'gitlab-url': { type: 'string' },
       model: { type: 'string' },
       'cache-dir': { type: 'string' },
@@ -104,7 +107,7 @@ async function main(argv: string[]): Promise<number> {
 
   if (values.story) {
     timeline.story = await writeStory(timeline, {
-      client: modelClient({ provider, apiKey, model: values.model, baseUrl: values['base-url'] }),
+      client: modelClient({ provider, apiKey, model: values.model, baseUrl: values['base-url'], headers: parseHeaders((values.header ?? []).join('\n')).headers }),
       cache: cacheDir ? new StoryCache(path.join(cacheDir, 'stories')) : undefined,
       onProgress: progress,
     });

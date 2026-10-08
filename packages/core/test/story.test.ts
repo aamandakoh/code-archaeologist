@@ -8,6 +8,7 @@ import {
   geminiClient,
   LIMITS,
   openAiClient,
+  parseHeaders,
   parseLineLog,
   parseStory,
   StoryCache,
@@ -187,6 +188,16 @@ describe('openAiClient', () => {
     expect(JSON.parse(String(init.body)).response_format).toEqual({ type: 'json_object' });
   });
 
+  test('sends extra headers, which can replace the auth header', async () => {
+    const fetch = vi.fn(async (_url: string | URL | Request, _init?: RequestInit) => ok('{}'));
+    const headers = { 'X-Org-Id': '42', Authorization: 'Basic abc' };
+    await openAiClient({ apiKey: 'k', model: 'm', headers, fetch: fetch as typeof globalThis.fetch }).generate(prompt);
+    const sent = fetch.mock.calls[0]![1]!.headers as Record<string, string>;
+    expect(sent['x-org-id']).toBe('42');
+    expect(sent.authorization).toBe('Basic abc');
+    expect(sent['content-type']).toBe('application/json');
+  });
+
   test('names the host in errors and asks for a model', async () => {
     const fetch = vi.fn(async () => new Response(JSON.stringify({ error: { message: 'bad key' } }), { status: 401 }));
     await expect(openAiClient({ model: 'm', baseUrl: 'https://openrouter.ai/api/v1', fetch }).generate(prompt)).rejects.toThrow(
@@ -213,4 +224,11 @@ test('writeStory caches by prompt and model', async () => {
   const second = await writeStory(timeline, { client, cache });
   expect(second).toEqual(first);
   expect(client.generate).toHaveBeenCalledTimes(1);
+});
+
+test('parseHeaders reads Name: value lines and reports the rest', () => {
+  expect(parseHeaders('X-Org-Id: 42\n\n# a comment\nHelicone-Auth:Bearer sk-1\nnot a header\nBad Name: x')).toEqual({
+    headers: { 'x-org-id': '42', 'helicone-auth': 'Bearer sk-1' },
+    invalid: ['not a header', 'Bad Name: x'],
+  });
 });

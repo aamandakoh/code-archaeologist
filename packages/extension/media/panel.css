@@ -1,6 +1,6 @@
 :root {
   --gap: 12px;
-  --thumb: 14px;
+  --thumb: 20px;
   --kind-revert: var(--vscode-errorForeground, #f14c4c);
   --kind-fix: var(--vscode-editorWarning-foreground, #cca700);
   --kind-feat: var(--vscode-testing-iconPassed, #388a34);
@@ -47,7 +47,6 @@ summary { cursor: pointer; color: var(--muted); }
 .noise ul { margin: 4px 0 0; padding-left: 18px; color: var(--muted); }
 
 .story {
-  position: sticky; top: 0; z-index: 1;
   margin: var(--gap) 0;
   padding: 10px 12px;
   border: 1px solid var(--border);
@@ -58,7 +57,7 @@ summary { cursor: pointer; color: var(--muted); }
 .pending { color: var(--muted); }
 .story.pending { border-style: dashed; }
 .story.failed { border-color: var(--vscode-errorForeground, #f14c4c); }
-.story.ready { max-height: 45vh; overflow-y: auto; border-left-width: 4px; }
+.story.ready { border-left-width: 4px; }
 .story.level-low { border-left-color: var(--vscode-testing-iconPassed, #388a34); }
 .story.level-medium { border-left-color: var(--vscode-editorWarning-foreground, #cca700); }
 .story.level-high { border-left-color: var(--vscode-errorForeground, #f14c4c); }
@@ -103,29 +102,26 @@ summary { cursor: pointer; color: var(--muted); }
 }
 
 .controls { display: flex; align-items: flex-start; gap: 8px; margin: var(--gap) 0 4px; }
-.controls > button { margin-top: 2px; }
+.controls > button { margin-top: 6px; }
 .controls button {
   min-width: 28px; height: 24px; font-size: 16px; line-height: 1;
   color: var(--vscode-button-secondaryForeground); background: var(--vscode-button-secondaryBackground);
   border: none; border-radius: 4px; cursor: pointer;
 }
 .controls button:disabled { opacity: 0.4; cursor: default; }
-.controls button.play { min-width: 34px; font-size: 13px; color: var(--vscode-button-foreground); background: var(--vscode-button-background); }
-.controls button.play:hover { background: var(--vscode-button-hoverBackground); }
-.controls button.play.on { background: var(--vscode-button-secondaryBackground); color: var(--vscode-button-secondaryForeground); }
 
 /* The slider with a dot per commit and year labels underneath. */
 .scrubber { flex: 1; min-width: 0; position: relative; padding-bottom: 30px; }
 .scrubber input[type='range'] {
-  -webkit-appearance: none; appearance: none; width: 100%; height: 28px; margin: 0; background: transparent; cursor: pointer;
+  -webkit-appearance: none; appearance: none; width: 100%; height: 36px; margin: 0; background: transparent; cursor: pointer;
 }
-.scrubber input[type='range']::-webkit-slider-runnable-track { height: 4px; border-radius: 2px; background: var(--border); }
+.scrubber input[type='range']::-webkit-slider-runnable-track { height: 8px; border-radius: 4px; background: var(--border); }
 .scrubber input[type='range']::-webkit-slider-thumb {
-  -webkit-appearance: none; width: var(--thumb); height: var(--thumb); margin-top: -5px; border-radius: 50%;
+  -webkit-appearance: none; width: var(--thumb); height: var(--thumb); margin-top: calc((8px - var(--thumb)) / 2); border-radius: 50%;
   background: var(--vscode-button-background); border: 2px solid var(--vscode-editor-background);
 }
 .scrubber input[type='range']:focus-visible { outline: 1px solid var(--vscode-focusBorder); outline-offset: 2px; }
-.track { position: absolute; left: 0; right: 0; top: 26px; height: 30px; }
+.track { position: absolute; left: 0; right: 0; top: 34px; height: 30px; }
 .controls .dot {
   position: absolute; top: 0; min-width: 0; width: 9px; height: 9px; padding: 0; margin-left: -4.5px; border-radius: 50%;
   border: none; cursor: pointer; background: var(--kind-other); opacity: 0.75;
@@ -146,10 +142,6 @@ summary { cursor: pointer; color: var(--muted); }
 
 .options { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 14px; margin: 0 0 var(--gap); color: var(--muted); font-size: 0.9em; }
 .options label { display: inline-flex; align-items: center; gap: 4px; cursor: pointer; }
-.options .speed {
-  padding: 1px 8px; border: 1px solid var(--border); border-radius: 10px; cursor: pointer;
-  color: var(--vscode-foreground); background: transparent; font-variant-numeric: tabular-nums;
-}
 .options .hint { margin-left: auto; opacity: 0.8; }
 
 .kind {
@@ -232,3 +224,9 @@ summary { cursor: pointer; color: var(--muted); }
 .history .kind { justify-self: start; }
 .history li.current .kind { color: inherit; border-color: currentColor; }
 .chip.review { font-family: inherit; }
+
+.pr-list { margin-top: 4px; }
+.pr-list summary { cursor: pointer; color: var(--muted); }
+.pr-list ul { margin: 4px 0 0; padding-left: 18px; }
+.pr-list li { margin: 2px 0; }
+.linklike { padding: 0; border: none; background: none; cursor: pointer; color: var(--vscode-textLink-foreground); font: inherit; }

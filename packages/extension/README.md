@@ -1,19 +1,22 @@
 # Code Archaeologist
 
-Select lines, right-click, **Why is this here?** A panel opens beside the editor with every
-commit that touched those lines, oldest first, as a time-lapse:
+Select lines, right-click, **Code Archaeologist: Why is this here?** A panel opens beside the
+editor with every commit that touched those lines, oldest first:
 
-- **Play** (or Space) steps through the history at 1×, 2× or 4×. Each step shows the lines
-  that commit removed in red folding away, then the lines it added growing in.
-- Drag the slider, click a dot under it, or use ← → Home End. Dots are coloured by kind of change
+- Click a dot under the slider, drag the slider, or use ← → Home End. Stepping forward shows the
+  lines that commit removed folding away, then the lines it added growing in.
+- Dots are coloured by kind of change
   (feature, fix, revert, refactor, docs) with year labels, and the commits the verdict cites are
   ringed.
 - Each step says how long after the previous change it came, links to the commit and to the
-  file as it was at that commit, and can keep removed lines on screen as a diff.
+  file as it was at that commit, and keeps removed lines on screen as a diff (untick
+  **Keep removed lines visible** to hide them).
 
 Whitespace-only, formatting-only and license-header commits are skipped and listed separately.
 
-Pinned at the top: a one-sentence summary and a Low / Medium / High risk verdict with cited
+Under the file name: every pull request or merge request behind these commits, found from the
+commit message or, when the message names none, by asking GitHub or GitLab which one merged the
+commit. Then a one-sentence summary and a Low / Medium / High risk verdict with cited
 reasons (click one to jump to the commit it cites; the reasons about the commit on screen light
 up as you scrub; "Hide reasons" folds the card down to the verdict) and things to check before
 you change it.
@@ -38,7 +41,7 @@ GitHub context needs no setup for a few traces an hour. For more, run **Code Arc
 GitHub token** with a fine-grained token that has read-only access to public repositories.
 
 Code on GitLab works the same way, with merge requests in place of pull requests. Run **Code
-Archaeologist: Set GitLab token** with a personal access token that has the `read_api` scope (GitLab
+Archaeologist: Set GitLab token** with a legacy personal access token (Personal access tokens > **Generate legacy token**) that has the `read_api` scope (GitLab
 needs one for private projects and for comments). gitlab.com and hosts named like
 `gitlab.example.com` are recognised from the `origin` remote; for any other self-hosted GitLab,
 set `codeArchaeologist.gitlabUrl` to its address. The token is sent only to gitlab.com and to the

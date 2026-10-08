@@ -12,6 +12,7 @@ export {
   geminiClient,
   openAiClient,
   modelClient,
+  parseHeaders,
   trimDiff,
   StoryError,
   DEFAULT_MODEL,

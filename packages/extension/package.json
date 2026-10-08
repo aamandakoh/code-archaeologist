@@ -2,7 +2,7 @@
   "name": "code-archaeologist",
   "displayName": "Code Archaeologist",
   "description": "Select code and see how it evolved commit by commit, and why.",
-  "version": "0.9.2",
+  "version": "0.10.0",
   "icon": "media/icon.png",
   "private": true,
   "publisher": "code-archaeologist",
@@ -24,8 +24,7 @@
     "commands": [
       {
         "command": "codeArchaeologist.trace",
-        "title": "Why is this here?",
-        "category": "Code Archaeologist"
+        "title": "Code Archaeologist: Why is this here?"
       },
       {
         "command": "codeArchaeologist.openSettings",
@@ -105,7 +104,7 @@
           "order": 3,
           "scope": "application",
           "default": "",
-          "markdownDescription": "Your self-hosted GitLab, e.g. `https://gitlab.example.com`. The GitLab token is sent only to gitlab.com and to this address, so set it for any other GitLab, even one with \"gitlab\" in its name. Remotes on a host named like `gitlab.example.com` are found without it, but read without your token. The token is set by **Code Archaeologist: Set GitLab token** (or `GITLAB_TOKEN`) and needs the `read_api` scope."
+          "markdownDescription": "Your self-hosted GitLab, e.g. `https://gitlab.example.com`. The GitLab token is sent only to gitlab.com and to this address, so set it for any other GitLab, even one with \"gitlab\" in its name. Remotes on a host named like `gitlab.example.com` are found without it, but read without your token. The token is set by **Code Archaeologist: Set GitLab token** (or `GITLAB_TOKEN`) and needs the `read_api` scope: on GitLab, open **Personal access tokens** and click **Generate legacy token**."
         },
         "codeArchaeologist.model": {
           "type": "string",

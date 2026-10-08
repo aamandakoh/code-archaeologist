@@ -317,8 +317,28 @@ export type ClientOptions = {
   thinkingLevel?: 'low' | 'medium' | 'high' | 'off';
   /** Extra attempts after a 429, a 5xx or a timeout. */
   retries?: number;
+  /** Extra HTTP headers on every request, e.g. for a gateway. They win over the client's own, so one can replace the auth header. */
+  headers?: Record<string, string>;
   fetch?: typeof fetch;
 };
+
+/**
+ * Headers written one per line as "Name: value". Blank lines and lines starting with # are skipped;
+ * anything else that isn't a valid header comes back in `invalid`.
+ */
+export function parseHeaders(text: string): { headers: Record<string, string>; invalid: string[] } {
+  const headers: Record<string, string> = {};
+  const invalid: string[] = [];
+  for (const raw of text.split(/\r?\n/)) {
+    const line = raw.trim();
+    if (!line || line.startsWith('#')) continue;
+    const m = /^([!#$%&'*+.^_`|~0-9A-Za-z-]+)\s*:\s*(.*)$/.exec(line);
+    // Values may not hold control characters; fetch would refuse them anyway.
+    if (m && !/[\0-\x1f\x7f]/.test(m[2]!)) headers[m[1]!.toLowerCase()] = m[2]!;
+    else invalid.push(line);
+  }
+  return { headers, invalid };
+}
 
 export type GeminiOptions = ClientOptions & { apiKey: string };
 
@@ -448,7 +468,7 @@ async function send<T>(options: ClientOptions, req: Request<T>, signal?: AbortSi
     try {
       response = await doFetch(req.url, {
         method: 'POST',
-        headers: req.headers,
+        headers: { ...req.headers, ...Object.fromEntries(Object.entries(options.headers ?? {}).map(([k, v]) => [k.toLowerCase(), v])) },
         body: JSON.stringify(req.body()),
         signal: signal ? AbortSignal.any([signal, timeout]) : timeout,
       });

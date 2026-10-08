@@ -1,8 +1,8 @@
 # Code Archaeologist
 
-Select some lines in VS Code and ask **"Why is this here?"**. Code Archaeologist plays back
+Select some lines in VS Code and ask **"Why is this here?"**. Code Archaeologist shows
 how those lines evolved, commit by commit, so you can see what changed, when and why, with a
-cited "safe to change?" verdict pinned at the top.
+cited "safe to change?" verdict near the top.
 
 ## Contents
 
@@ -41,7 +41,7 @@ No build needed. Download `code-archaeologist-<version>.vsix` from the
 - from a terminal: `code --install-extension code-archaeologist-<version>.vsix`
 
 Reload VS Code if asked. Select some lines in a file inside a git repository, right-click and choose
-**Why is this here?**. With the GitHub CLI you can also fetch the file from a terminal:
+**Code Archaeologist: Why is this here?**. With the GitHub CLI you can also fetch the file from a terminal:
 `gh release download --repo aamandakoh/code-archaeologist --pattern '*.vsix'`.
 
 ### Settings
@@ -52,9 +52,10 @@ are kept in VS Code secret storage, and **Test connection** checks them before y
 | Setting | Needed? | What it does |
 | --- | --- | --- |
 | LLM API key | **Must**, for the AI story | Without it you still get the commit-by-commit history, but no notes, summary or verdict. The default provider is Gemini: get a free key at [aistudio.google.com/apikey](https://aistudio.google.com/apikey). Also read from `GEMINI_API_KEY` or `OPENAI_API_KEY`. |
+| Extra request headers | Optional | Headers sent with every LLM request, one `Name: value` per line, for a gateway or proxy that needs them. They can replace the API key's auth header and are kept in secret storage. CLI: `--header`. |
 | Provider, API URL and model | Optional | Defaults to Gemini with `gemini-3.5-flash`. Pick **OpenAI-compatible** to use OpenAI, OpenRouter, or a local server like Ollama or LM Studio. That format needs a model id, and a local server usually needs no key. |
 | GitHub token | **Should**, for GitHub repos | Lets the story cite PRs, review comments and linked issues. Without one GitHub allows only 60 requests an hour, and private repos can't be read. A fine-grained token with read access to pull requests and issues is enough. Also read from `GITHUB_TOKEN`. |
-| GitLab token | **Should**, for GitLab repos | The same for merge requests, comments and issues. Needs the `read_api` scope. Also read from `GITLAB_TOKEN`. |
+| GitLab token | **Should**, for GitLab repos | The same for merge requests, comments and issues. On GitLab, open **Personal access tokens**, click **Generate legacy token** and tick the `read_api` scope. Also read from `GITLAB_TOKEN`. |
 | GitLab URL | **Must**, for self-hosted GitLab | Your GitLab's address, e.g. `https://gitlab.example.com`. The GitLab token is only sent to gitlab.com and this address. When a trace holds the token back, the panel has a button that sets this for you. |
 
 ## Status
@@ -90,7 +91,7 @@ npm run typecheck
 
 Run the extension: open this folder in VS Code and press **F5** ("Run extension"). In the new
 window, open a file in any git repository, select some lines, right-click and choose
-**Why is this here?** (or run **Code Archaeologist: Why is this here?** from the command palette).
+**Code Archaeologist: Why is this here?** (also in the command palette).
 
 Build your own `.vsix` instead: `npm run package -w packages/extension` writes
 `packages/extension/code-archaeologist-<version>.vsix`, which installs as above.
@@ -103,7 +104,7 @@ run by hand from the Actions tab, and skips versions that already have a release
 
 ```sh
 npm run build
-node packages/cli/dist/cli.js trace <file> <start> <end> [--json] [--snapshots] [--keep-noise] [--no-github] [--gitlab-url <url>] [--story] [--provider gemini|openai] [--base-url <url>] [--model <id>] [--cache-dir <dir>]
+node packages/cli/dist/cli.js trace <file> <start> <end> [--json] [--snapshots] [--keep-noise] [--no-github] [--gitlab-url <url>] [--story] [--provider gemini|openai] [--base-url <url>] [--header "Name: value"] [--model <id>] [--cache-dir <dir>]
 ```
 
 Lines are 1-based and inclusive, matched against HEAD. `--story` asks Gemini for the summary,
@@ -144,7 +145,7 @@ traced file first, the issues it closes ("Closes #7") and the merge request a re
 Merge requests show as `!12`. Remotes on gitlab.com or a host with "gitlab" in its name are found
 on their own; for another self-hosted host set `codeArchaeologist.gitlabUrl` (CLI:
 `--gitlab-url` or `GITLAB_URL`). Private projects, and comments even on public gitlab.com
-projects, need a personal access token with `read_api`: **Code Archaeologist: Set GitLab token**
+projects, need a legacy personal access token with `read_api` (Personal access tokens > **Generate legacy token**): **Code Archaeologist: Set GitLab token**
 in VS Code, or `GITLAB_TOKEN` for the CLI. The token is sent only to gitlab.com and to the GitLab
 in `codeArchaeologist.gitlabUrl`, so a self-hosted GitLab needs that setting even when its name
 has "gitlab" in it. Until it is set, the panel says the token was held back, with a

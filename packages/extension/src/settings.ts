@@ -1,4 +1,5 @@
 import * as vscode from 'vscode';
+import { parseHeaders } from '@code-archaeologist/core';
 import type { FromSettings, SecretName, SecretState, SettingsValues, ToSettings } from './settingsMessages';
 
 /** The settings form: LLM provider, URL, model and key, and the GitHub and GitLab tokens. */
@@ -38,7 +39,7 @@ export class SettingsPanel {
   private async handle(message: FromSettings): Promise<void> {
     if (message.type === 'ready') return this.sendState();
     if (message.type === 'test') {
-      const result = await this.host.test(message.values, message.apiKey);
+      const result = await this.host.test(message.values, message.apiKey, message.headers);
       return this.post({ type: 'test-result', ...result });
     }
     const config = vscode.workspace.getConfiguration('codeArchaeologist');
@@ -73,8 +74,10 @@ export class SettingsPanel {
       apiKey: await where('apiKey', values.provider === 'openai' ? e.OPENAI_API_KEY : e.GEMINI_API_KEY),
       githubToken: await where('githubToken', e.GITHUB_TOKEN),
       gitlabToken: await where('gitlabToken', e.GITLAB_TOKEN),
+      llmHeaders: await where('llmHeaders'),
     };
-    this.post({ type: 'state', values, secrets });
+    const headerNames = Object.keys(parseHeaders((await this.host.secrets.get(SECRETS.llmHeaders)) ?? '').headers);
+    this.post({ type: 'state', values, secrets, headerNames });
   }
 
   private post(message: ToSettings): void {
@@ -86,7 +89,7 @@ export class SettingsPanel {
 export type SettingsHost = {
   secrets: vscode.SecretStorage;
   /** Sends a tiny prompt with these settings and says whether the model answered. */
-  test(values: SettingsValues, apiKey?: string): Promise<{ ok: boolean; message: string }>;
+  test(values: SettingsValues, apiKey?: string, headers?: string): Promise<{ ok: boolean; message: string }>;
   /** Called after a save, e.g. to rewrite the story on screen with the new settings. */
   saved(): void;
 };
@@ -96,6 +99,7 @@ export const SECRETS: Record<SecretName, string> = {
   apiKey: 'codeArchaeologist.geminiApiKey',
   githubToken: 'codeArchaeologist.githubToken',
   gitlabToken: 'codeArchaeologist.gitlabToken',
+  llmHeaders: 'codeArchaeologist.llmHeaders',
 };
 
 function html(webview: vscode.Webview, extensionUri: vscode.Uri): string {

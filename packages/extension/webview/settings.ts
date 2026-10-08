@@ -38,6 +38,7 @@ function activePreset(v: SettingsValues): (typeof PRESETS)[number] | undefined {
 
 let values: SettingsValues | undefined;
 let secrets: SecretState | undefined;
+let headerNames: string[] = [];
 /** Typed keys and tokens, and the ones marked for removal, until Save. */
 const typed: Partial<Record<SecretName, string | null>> = {};
 
@@ -46,6 +47,7 @@ window.addEventListener('message', (event: MessageEvent<ToSettings>) => {
   if (message.type === 'state') {
     values = message.values;
     secrets = message.secrets;
+    headerNames = message.headerNames;
     render();
   } else if (message.type === 'saved') {
     for (const name of Object.keys(typed) as SecretName[]) delete typed[name];
@@ -116,6 +118,7 @@ function render(): void {
         input('model', v.model, v.provider === 'gemini' ? 'gemini-3.5-flash' : 'Required: a model id from your API', (value) => (v.model = value)),
       ),
       secretField('apiKey', 'API key', v.provider === 'openai' ? 'OPENAI_API_KEY' : 'GEMINI_API_KEY', v.provider === 'openai' && v.baseUrl ? 'Optional for a server on your own machine.' : undefined),
+      headersField(),
       el(
         'div',
         { class: 'row' },
@@ -124,7 +127,12 @@ function render(): void {
           result.className = 'result';
           result.textContent = 'Asking the model…';
           (document.getElementById('test') as HTMLButtonElement).disabled = true;
-          vscode.postMessage({ type: 'test', values: v, ...(typed.apiKey && { apiKey: typed.apiKey }) });
+          vscode.postMessage({
+            type: 'test',
+            values: v,
+            ...(typed.apiKey && { apiKey: typed.apiKey }),
+            ...(typed.llmHeaders !== undefined && { headers: typed.llmHeaders ?? '' }),
+          });
         }, 'test'),
         el('span', { class: 'result', attrs: { id: 'test-result', role: 'status' } }),
       ),
@@ -148,7 +156,7 @@ function render(): void {
         input('gitlabUrl', v.gitlabUrl, 'https://git.example.com', (value) => (v.gitlabUrl = value)),
         hint('Your self-hosted GitLab. The token is only sent to gitlab.com and this address, so set it for any other GitLab.'),
       ),
-      secretField('gitlabToken', 'Token', 'GITLAB_TOKEN', 'A personal access token with the read_api scope. Needed for private projects and for comments.'),
+      secretField('gitlabToken', 'Token', 'GITLAB_TOKEN', 'On GitLab, open Personal access tokens, click Generate legacy token and tick read_api. Needed for private projects and for comments.'),
     ),
 
     el(
@@ -158,6 +166,45 @@ function render(): void {
       el('span', { class: 'result', attrs: { id: 'saved', role: 'status' } }),
     ),
   );
+}
+
+/**
+ * Extra headers for every LLM request, one "Name: value" per line. Saved as a secret since they may
+ * carry auth, so only the saved names are shown; typing replaces them all.
+ */
+function headersField(): HTMLElement {
+  const state = typed.llmHeaders === null ? 'removed' : secrets!.llmHeaders;
+  const placeholder =
+    state === 'saved'
+      ? `Saved: ${headerNames.join(', ')}. Type to replace them all.`
+      : state === 'removed'
+        ? 'Removed on save.'
+        : 'X-Org-Id: 1234\nHelicone-Auth: Bearer sk-…';
+  const box = el('textarea', { attrs: { id: 'llmHeaders', rows: '3', placeholder, spellcheck: 'false', autocomplete: 'off' } });
+  box.value = typeof typed.llmHeaders === 'string' ? typed.llmHeaders : '';
+  const problem = hint('');
+  const check = () => {
+    const bad = box.value
+      .split(/\r?\n/)
+      .map((l) => l.trim())
+      .filter((l) => l && !l.startsWith('#') && !/^[!#$%&'*+.^_`|~0-9A-Za-z-]+\s*:/.test(l));
+    problem.className = bad.length ? 'hint bad' : 'hint';
+    problem.textContent = bad.length
+      ? `Not a header, will be skipped: ${bad.join(' · ')}`
+      : 'One per line, as Name: value. Sent with every request to the model, after the key, so they can replace its auth header. Kept in secret storage.';
+  };
+  box.addEventListener('input', () => {
+    typed.llmHeaders = box.value.trim() ? box.value : undefined;
+    check();
+  });
+  check();
+  const remove =
+    state === 'saved' &&
+    button('Remove', 'link', () => {
+      typed.llmHeaders = null;
+      render();
+    });
+  return field('Extra request headers', el('div', { class: 'row' }, box, remove || ''), problem);
 }
 
 /** A password field showing where the current value comes from, with a way to remove a saved one. */

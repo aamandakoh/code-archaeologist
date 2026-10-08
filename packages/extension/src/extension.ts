@@ -4,6 +4,7 @@ import {
   addGitLabContext,
   GitHubCache,
   modelClient,
+  parseHeaders,
   type Provider,
   StoryCache,
   TimelineCache,
@@ -43,6 +44,11 @@ export function activate(context: vscode.ExtensionContext): void {
   async function apiKey(provider: Provider): Promise<string | undefined> {
     const env = provider === 'openai' ? process.env.OPENAI_API_KEY : process.env.GEMINI_API_KEY;
     return (await context.secrets.get(KEY_SECRET)) || env || undefined;
+  }
+
+  /** Extra headers for every LLM request, from secret storage. */
+  async function llmHeaders(): Promise<Record<string, string>> {
+    return parseHeaders((await context.secrets.get(SECRETS.llmHeaders)) ?? '').headers;
   }
 
   async function githubToken(): Promise<string | undefined> {
@@ -92,16 +98,18 @@ export function activate(context: vscode.ExtensionContext): void {
 
     const settings = llmSettings();
     const key = await apiKey(settings.provider);
+    const headers = await llmHeaders();
     if (timeline.steps.length === 0) return post({ status: 'ready' });
-    // A self-hosted OpenAI-compatible server usually needs no key.
-    if (!key && (settings.provider === 'gemini' || !settings.baseUrl)) return post({ status: 'no-key' });
+    // A self-hosted OpenAI-compatible server usually needs no key, and a gateway may take its auth in a header.
+    const headerAuth = Object.keys(headers).length > 0;
+    if (!key && !headerAuth && (settings.provider === 'gemini' || !settings.baseUrl)) return post({ status: 'no-key' });
 
     const controller = new AbortController();
     pending = controller;
     post({ status: 'writing' });
     try {
       const story = await writeStory(timeline, {
-        client: modelClient({ ...settings, apiKey: key }),
+        client: modelClient({ ...settings, apiKey: key, headers }),
         cache: stories,
         signal: controller.signal,
       });
@@ -162,7 +170,7 @@ export function activate(context: vscode.ExtensionContext): void {
     const token = await vscode.window.showInputBox({
       title: 'GitLab token',
       prompt:
-        'Paste a GitLab personal access token with the read_api scope (User settings > Access tokens on your GitLab). It is kept in VS Code secret storage.',
+        'Paste a GitLab personal access token: on your GitLab, open Personal access tokens, click Generate legacy token and tick read_api. It is kept in VS Code secret storage.',
       password: true,
       ignoreFocusOut: true,
     });
@@ -189,13 +197,15 @@ export function activate(context: vscode.ExtensionContext): void {
   function openSettings(): void {
     SettingsPanel.show(context.extensionUri, {
       secrets: context.secrets,
-      async test(values, typedKey) {
+      async test(values, typedKey, typedHeaders) {
         const key = typedKey || (await apiKey(values.provider));
+        const headers = typedHeaders === undefined ? await llmHeaders() : parseHeaders(typedHeaders).headers;
         const client = modelClient({
           provider: values.provider,
           baseUrl: values.baseUrl.trim() || undefined,
           model: values.model.trim() || undefined,
           apiKey: key,
+          headers,
           retries: 0,
           timeoutMs: 60_000,
         });
