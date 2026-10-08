@@ -528,8 +528,8 @@ function renderStory(t: Timeline, state: AiState): HTMLElement {
       case 'no-key':
         return section(
           'pending',
-          el('p', { text: 'Add a Gemini API key to get a summary, a note on every commit and a "safe to change?" verdict. The raw history is below.' }),
-          button('Add Gemini API key', { type: 'set-key' }),
+          el('p', { text: 'Add an LLM API key to get a summary, a note on every commit and a "safe to change?" verdict. The raw history is below.' }),
+          button('Add API key', { type: 'set-key' }),
           githubNotice(t),
         );
       case 'error':

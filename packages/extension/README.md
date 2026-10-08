@@ -21,9 +21,14 @@ Each commit gets a short AI note with chips linking to the commits, PRs, review 
 issues it cites. Under it are the commit's pull request, linked issues and review comments, read
 from GitHub.
 
-The story is written by Gemini. Run **Code Archaeologist: Set Gemini API key** with a key from
-Google AI Studio, and pick the model with the `codeArchaeologist.model` setting (default
+The story is written by Gemini by default. Run **Code Archaeologist: Set LLM API key** with a key
+from Google AI Studio, and pick the model with the `codeArchaeologist.model` setting (default
 `gemini-3.5-flash`). Without a key you still get the raw history.
+
+To use another LLM, set `codeArchaeologist.baseUrl` to its API URL and, for anything that speaks
+the OpenAI chat completions format (OpenAI, OpenRouter, Ollama, LM Studio, vLLM), set
+`codeArchaeologist.provider` to `openai` and `codeArchaeologist.model` to one of its model ids.
+For example `http://localhost:11434/v1` with `llama3.1` runs on a local Ollama with no key.
 
 GitHub context needs no setup for a few traces an hour. For more, run **Code Archaeologist: Set
 GitHub token** with a fine-grained token that has read-only access to public repositories.

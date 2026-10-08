@@ -2,7 +2,7 @@
   "name": "code-archaeologist",
   "displayName": "Code Archaeologist",
   "description": "Select code and see how it evolved commit by commit, and why.",
-  "version": "0.4.0",
+  "version": "0.5.0",
   "private": true,
   "publisher": "code-archaeologist",
   "license": "MIT",
@@ -28,7 +28,7 @@
       },
       {
         "command": "codeArchaeologist.setApiKey",
-        "title": "Set Gemini API key",
+        "title": "Set LLM API key",
         "category": "Code Archaeologist"
       },
       {
@@ -55,10 +55,25 @@
     "configuration": {
       "title": "Code Archaeologist",
       "properties": {
+        "codeArchaeologist.provider": {
+          "type": "string",
+          "enum": ["gemini", "openai"],
+          "enumDescriptions": [
+            "Google Gemini API (Google AI Studio)",
+            "OpenAI-compatible chat completions API: OpenAI, OpenRouter, Ollama, LM Studio, vLLM, LiteLLM and similar"
+          ],
+          "default": "gemini",
+          "markdownDescription": "Request format of the LLM API that writes the notes, summary and verdict."
+        },
+        "codeArchaeologist.baseUrl": {
+          "type": "string",
+          "default": "",
+          "markdownDescription": "LLM API URL, up to the version path, e.g. `https://openrouter.ai/api/v1` or `http://localhost:11434/v1` for the OpenAI-compatible format. Empty uses `https://generativelanguage.googleapis.com/v1beta` for Gemini and `https://api.openai.com/v1` for OpenAI-compatible."
+        },
         "codeArchaeologist.model": {
           "type": "string",
-          "default": "gemini-3.5-flash",
-          "markdownDescription": "Gemini model that writes the notes, summary and verdict. Any model id from [Google AI Studio](https://aistudio.google.com) works. The API key is set with **Code Archaeologist: Set Gemini API key**, or read from the `GEMINI_API_KEY` environment variable. Pull requests, reviews and issues are read from GitHub with the token set by **Code Archaeologist: Set GitHub token** (or `GITHUB_TOKEN`); without one GitHub allows 60 requests an hour."
+          "default": "",
+          "markdownDescription": "Model that writes the notes, summary and verdict. Empty uses `gemini-3.5-flash` with the Gemini API; the OpenAI-compatible format needs a model id from your API. The API key is set with **Code Archaeologist: Set LLM API key**, or read from `GEMINI_API_KEY` or `OPENAI_API_KEY`; a server set in `codeArchaeologist.baseUrl` may need none. Pull requests, reviews and issues are read from GitHub with the token set by **Code Archaeologist: Set GitHub token** (or `GITHUB_TOKEN`); without one GitHub allows 60 requests an hour."
         }
       }
     }

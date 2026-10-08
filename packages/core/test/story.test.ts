@@ -7,6 +7,7 @@ import {
   buildTimeline,
   geminiClient,
   LIMITS,
+  openAiClient,
   parseLineLog,
   parseStory,
   StoryCache,
@@ -157,6 +158,52 @@ describe('geminiClient', () => {
     const fetch = vi.fn(async () => new Response(JSON.stringify({ error: { message: 'not found' } }), { status: 404 }));
     await expect(geminiClient({ apiKey: 'k', model: 'nope', fetch }).generate(prompt)).rejects.toThrow(/404.*model name/);
   });
+});
+
+describe('openAiClient', () => {
+  const prompt = buildStoryPrompt(timeline);
+  const ok = (content: string) => new Response(JSON.stringify({ choices: [{ message: { content } }] }), { status: 200 });
+
+  test('posts chat completions to the base URL with a JSON schema', async () => {
+    const fetch = vi.fn(async (_url: string | URL | Request, _init?: RequestInit) => ok('{"a":1}'));
+    const client = openAiClient({ apiKey: 'k', model: 'llama3', baseUrl: 'http://localhost:11434/v1/', fetch: fetch as typeof globalThis.fetch });
+    expect(await client.generate(prompt)).toBe('{"a":1}');
+    const [url, init] = fetch.mock.calls[0]!;
+    expect(String(url)).toBe('http://localhost:11434/v1/chat/completions');
+    expect((init!.headers as Record<string, string>).authorization).toBe('Bearer k');
+    const body = JSON.parse(String(init!.body));
+    expect(body.model).toBe('llama3');
+    expect(body.messages.map((m: { role: string }) => m.role)).toEqual(['system', 'user']);
+    expect(body.response_format.type).toBe('json_schema');
+  });
+
+  test('sends no key when there is none, and falls back when the schema is refused', async () => {
+    const refused = () => new Response(JSON.stringify({ error: { message: "'response_format.type' json_schema is not supported" } }), { status: 400 });
+    const fetch = vi.fn().mockResolvedValueOnce(refused()).mockResolvedValueOnce(ok('{}'));
+    expect(await openAiClient({ model: 'm', fetch }).generate(prompt)).toBe('{}');
+    const [url, init] = fetch.mock.calls[1]!;
+    expect(String(url)).toBe('https://api.openai.com/v1/chat/completions');
+    expect((init.headers as Record<string, string>).authorization).toBeUndefined();
+    expect(JSON.parse(String(init.body)).response_format).toEqual({ type: 'json_object' });
+  });
+
+  test('names the host in errors and asks for a model', async () => {
+    const fetch = vi.fn(async () => new Response(JSON.stringify({ error: { message: 'bad key' } }), { status: 401 }));
+    await expect(openAiClient({ model: 'm', baseUrl: 'https://openrouter.ai/api/v1', fetch }).generate(prompt)).rejects.toThrow(
+      /^openrouter\.ai \(m\) answered 401: bad key\. Check the API key\.$/,
+    );
+    await expect(openAiClient({ fetch }).generate(prompt)).rejects.toThrow(/model name/);
+  });
+});
+
+test('geminiClient takes another base URL', async () => {
+  const fetch = vi.fn(async (_url: string | URL | Request) =>
+    new Response(JSON.stringify({ candidates: [{ content: { parts: [{ text: '{}' }] } }] }), { status: 200 }),
+  );
+  await geminiClient({ apiKey: 'k', model: 'g', baseUrl: 'https://proxy.example.com/gemini/v1beta', fetch: fetch as typeof globalThis.fetch }).generate(
+    buildStoryPrompt(timeline),
+  );
+  expect(String(fetch.mock.calls[0]![0])).toBe('https://proxy.example.com/gemini/v1beta/models/g:generateContent');
 });
 
 test('writeStory caches by prompt and model', async () => {

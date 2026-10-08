@@ -6,7 +6,7 @@ import {
   GitHubCache,
   describeStory,
   describeTimeline,
-  geminiClient,
+  modelClient,
   StoryCache,
   trace,
   TimelineCache,
@@ -23,9 +23,13 @@ Options:
   --keep-noise       Keep whitespace, formatting and license-only commits
   --no-github        Skip pull requests, reviews and issues from GitHub. They are read
                      when origin is on github.com, with GITHUB_TOKEN if set
-  --story            Ask Gemini for per-commit notes, a summary and a risk verdict
-                     (needs GEMINI_API_KEY)
-  --model <id>       Gemini model for --story (default ${DEFAULT_MODEL})
+  --story            Ask an LLM for per-commit notes, a summary and a risk verdict
+                     (Gemini by default, with GEMINI_API_KEY)
+  --provider <name>  gemini (default) or openai, for any OpenAI-compatible API
+                     (key in OPENAI_API_KEY, optional for local servers)
+  --base-url <url>   LLM API URL, e.g. http://localhost:11434/v1 (default: the
+                     provider's own API)
+  --model <id>       Model for --story (default ${DEFAULT_MODEL} for Gemini; needed for openai)
   --cache-dir <dir>  Reuse traces and stories for the same file, range and HEAD
   -h, --help         Show this help`;
 
@@ -39,6 +43,8 @@ async function main(argv: string[]): Promise<number> {
       'keep-noise': { type: 'boolean', default: false },
       'no-github': { type: 'boolean', default: false },
       story: { type: 'boolean', default: false },
+      provider: { type: 'string' },
+      'base-url': { type: 'string' },
       model: { type: 'string' },
       'cache-dir': { type: 'string' },
       help: { type: 'boolean', short: 'h', default: false },
@@ -57,9 +63,18 @@ async function main(argv: string[]): Promise<number> {
 
   const start = Number(startArg);
   const end = Number(endArg);
-  const apiKey = process.env.GEMINI_API_KEY;
-  if (values.story && !apiKey) {
+  const provider = values.provider ?? 'gemini';
+  if (provider !== 'gemini' && provider !== 'openai') {
+    console.error(`archaeologist: --provider must be gemini or openai, not ${provider}`);
+    return 1;
+  }
+  const apiKey = (provider === 'openai' ? process.env.OPENAI_API_KEY : process.env.GEMINI_API_KEY) || undefined;
+  if (values.story && provider === 'gemini' && !apiKey) {
     console.error('archaeologist: --story needs a Gemini API key in GEMINI_API_KEY');
+    return 1;
+  }
+  if (values.story && provider === 'openai' && !values.model) {
+    console.error('archaeologist: --provider openai needs --model');
     return 1;
   }
 
@@ -83,9 +98,9 @@ async function main(argv: string[]): Promise<number> {
     if (timeline.context?.error && !values.json) console.error(`warning: ${timeline.context.error}`);
   }
 
-  if (values.story && apiKey) {
+  if (values.story) {
     timeline.story = await writeStory(timeline, {
-      client: geminiClient({ apiKey, model: values.model }),
+      client: modelClient({ provider, apiKey, model: values.model, baseUrl: values['base-url'] }),
       cache: cacheDir ? new StoryCache(path.join(cacheDir, 'stories')) : undefined,
       onProgress: progress,
     });

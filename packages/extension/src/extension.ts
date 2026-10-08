@@ -1,9 +1,9 @@
 import * as vscode from 'vscode';
 import {
   addGitHubContext,
-  DEFAULT_MODEL,
   GitHubCache,
-  geminiClient,
+  modelClient,
+  type Provider,
   StoryCache,
   TimelineCache,
   trace,
@@ -30,8 +30,16 @@ export function activate(context: vscode.ExtensionContext): void {
   /** Cancels the story request for a timeline that is no longer on screen. */
   let pending: AbortController | undefined;
 
-  async function apiKey(): Promise<string | undefined> {
-    return (await context.secrets.get(KEY_SECRET)) || process.env.GEMINI_API_KEY || undefined;
+  /** The provider, URL and model from settings. Gemini on Google AI Studio unless changed. */
+  function llmSettings(): { provider: Provider; baseUrl?: string; model?: string } {
+    const config = vscode.workspace.getConfiguration('codeArchaeologist');
+    const provider = config.get<string>('provider') === 'openai' ? 'openai' : 'gemini';
+    return { provider, baseUrl: config.get<string>('baseUrl')?.trim() || undefined, model: config.get<string>('model')?.trim() || undefined };
+  }
+
+  async function apiKey(provider: Provider): Promise<string | undefined> {
+    const env = provider === 'openai' ? process.env.OPENAI_API_KEY : process.env.GEMINI_API_KEY;
+    return (await context.secrets.get(KEY_SECRET)) || env || undefined;
   }
 
   async function githubToken(): Promise<string | undefined> {
@@ -72,17 +80,18 @@ export function activate(context: vscode.ExtensionContext): void {
     shown = { timeline, raw, panel };
     const post = (ai: AiState, story = timeline.story) => panel.post({ type: 'timeline', timeline: { ...timeline, story }, ai });
 
-    const key = await apiKey();
+    const settings = llmSettings();
+    const key = await apiKey(settings.provider);
     if (timeline.steps.length === 0) return post({ status: 'ready' });
-    if (!key) return post({ status: 'no-key' });
+    // A self-hosted OpenAI-compatible server usually needs no key.
+    if (!key && (settings.provider === 'gemini' || !settings.baseUrl)) return post({ status: 'no-key' });
 
     const controller = new AbortController();
     pending = controller;
     post({ status: 'writing' });
-    const model = vscode.workspace.getConfiguration('codeArchaeologist').get<string>('model') || DEFAULT_MODEL;
     try {
       const story = await writeStory(timeline, {
-        client: geminiClient({ apiKey: key, model }),
+        client: modelClient({ ...settings, apiKey: key }),
         cache: stories,
         signal: controller.signal,
       });
@@ -102,18 +111,19 @@ export function activate(context: vscode.ExtensionContext): void {
 
   async function setApiKey(): Promise<void> {
     const key = await vscode.window.showInputBox({
-      title: 'Gemini API key',
-      prompt: 'Paste a key from Google AI Studio (aistudio.google.com/apikey). It is kept in VS Code secret storage.',
+      title: 'LLM API key',
+      prompt:
+        'Paste a key for the API in the codeArchaeologist.baseUrl setting (by default Gemini: aistudio.google.com/apikey). It is kept in VS Code secret storage.',
       password: true,
       ignoreFocusOut: true,
     });
     if (key === undefined) return;
     if (key.trim()) {
       await context.secrets.store(KEY_SECRET, key.trim());
-      void vscode.window.showInformationMessage('Code Archaeologist: Gemini API key saved.');
+      void vscode.window.showInformationMessage('Code Archaeologist: API key saved.');
     } else {
       await context.secrets.delete(KEY_SECRET);
-      void vscode.window.showInformationMessage('Code Archaeologist: Gemini API key removed.');
+      void vscode.window.showInformationMessage('Code Archaeologist: API key removed.');
     }
     if (shown && !shown.timeline.story) void tellStory(shown.timeline, shown.raw, shown.panel);
   }

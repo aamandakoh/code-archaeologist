@@ -46,7 +46,7 @@ Install it in your normal VS Code instead: `npm run package -w packages/extensio
 
 ```sh
 npm run build
-node packages/cli/dist/cli.js trace <file> <start> <end> [--json] [--snapshots] [--keep-noise] [--no-github] [--story] [--model <id>] [--cache-dir <dir>]
+node packages/cli/dist/cli.js trace <file> <start> <end> [--json] [--snapshots] [--keep-noise] [--no-github] [--story] [--provider gemini|openai] [--base-url <url>] [--model <id>] [--cache-dir <dir>]
 ```
 
 Lines are 1-based and inclusive, matched against HEAD. `--story` asks Gemini for the summary,
@@ -93,9 +93,16 @@ Google AI Studio's free tier:
   `pr:49659`). Citations that match nothing are dropped, and a claim left with none is shown as
   **unverified**. When the evidence gives no reason, the note says "No reason recorded."
 
-In VS Code, set the key with **Code Archaeologist: Set Gemini API key** (kept in secret storage;
+In VS Code, set the key with **Code Archaeologist: Set LLM API key** (kept in secret storage;
 `GEMINI_API_KEY` in the environment also works) and the model with the `codeArchaeologist.model`
-setting. Without a key the panel shows the raw history and a button to add one. The free tier is
+setting.
+
+Gemini is only the default. `codeArchaeologist.baseUrl` (CLI: `--base-url`) points the story at
+another API, and `codeArchaeologist.provider` set to `openai` (CLI: `--provider openai`) switches
+to the OpenAI chat completions format, so OpenAI, OpenRouter, Ollama, LM Studio, vLLM or LiteLLM
+all work. That format needs a model id, takes its key from the same command or `OPENAI_API_KEY`,
+and needs no key for a server on your own `baseUrl`. If the server refuses a JSON schema the
+client falls back to plain JSON mode. Without a key the panel shows the raw history and a button to add one. The free tier is
 sometimes overloaded (HTTP 503); the client retries with backoff, and a full trace can take a
 minute or two.
 

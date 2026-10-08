@@ -287,9 +287,22 @@ export class StoryError extends Error {
 /** Sends one prompt and resolves with the model's raw text. Swappable for tests and other providers. */
 export type ModelClient = { model: string; generate(prompt: StoryPrompt, signal?: AbortSignal): Promise<string> };
 
-export type GeminiOptions = {
-  apiKey: string;
+/**
+ * The request format. "gemini" is Google AI Studio's REST API. "openai" is the chat completions
+ * API that OpenAI, OpenRouter, Ollama, LM Studio, vLLM and most gateways speak.
+ */
+export type Provider = 'gemini' | 'openai';
+
+export type ClientOptions = {
+  provider?: Provider;
+  /** Optional for "openai", since local servers usually take none. */
+  apiKey?: string;
   model?: string;
+  /**
+   * API root, e.g. "https://generativelanguage.googleapis.com/v1beta" or "http://localhost:11434/v1".
+   * Defaults to DEFAULT_BASE_URL for the provider.
+   */
+  baseUrl?: string;
   /** Per attempt. A full timeline takes 20-120 seconds on the free tier, more when it is busy. */
   timeoutMs?: number;
   /** Gemini 3 thinking level. Low keeps a trace fast without hurting the notes. */
@@ -299,22 +312,36 @@ export type GeminiOptions = {
   fetch?: typeof fetch;
 };
 
+export type GeminiOptions = ClientOptions & { apiKey: string };
+
 export const DEFAULT_MODEL = 'gemini-3.5-flash';
+
+export const DEFAULT_BASE_URL: Record<Provider, string> = {
+  gemini: 'https://generativelanguage.googleapis.com/v1beta',
+  openai: 'https://api.openai.com/v1',
+};
+
+/** A client for the provider in the options, Gemini by default. */
+export function modelClient(options: ClientOptions): ModelClient {
+  return options.provider === 'openai' ? openAiClient(options) : geminiClient({ ...options, apiKey: options.apiKey ?? '' });
+}
 
 /** Google AI Studio's REST API, called with plain fetch so there is no SDK to bundle. */
 export function geminiClient(options: GeminiOptions): ModelClient {
   const model = options.model?.trim() || DEFAULT_MODEL;
-  const doFetch = options.fetch ?? fetch;
-  const timeoutMs = options.timeoutMs ?? 180_000;
+  const base = trimUrl(options.baseUrl) || DEFAULT_BASE_URL.gemini;
+  const url = /:generateContent$/.test(base) ? base : `${base}/models/${encodeURIComponent(model)}:generateContent`;
   let thinkingLevel = options.thinkingLevel ?? 'low';
-  const retries = options.retries ?? 3;
-  const url = `https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(model)}:generateContent`;
 
   return {
     model,
-    async generate(prompt, signal) {
-      const body = () =>
-        JSON.stringify({
+    generate: (prompt, signal) =>
+      send(options, {
+        name: base === DEFAULT_BASE_URL.gemini ? 'Gemini' : host(base),
+        model,
+        url,
+        headers: { 'content-type': 'application/json', 'x-goog-api-key': options.apiKey },
+        body: () => ({
           systemInstruction: { parts: [{ text: prompt.system }] },
           contents: [{ role: 'user', parts: [{ text: prompt.user }] }],
           generationConfig: {
@@ -323,71 +350,161 @@ export function geminiClient(options: GeminiOptions): ModelClient {
             responseJsonSchema: prompt.schema,
             ...(thinkingLevel !== 'off' && { thinkingConfig: { thinkingLevel } }),
           },
-        });
-
-      for (let attempt = 0; ; attempt++) {
-        const timeout = AbortSignal.timeout(timeoutMs);
-        let response: Response;
-        try {
-          response = await doFetch(url, {
-            method: 'POST',
-            headers: { 'content-type': 'application/json', 'x-goog-api-key': options.apiKey },
-            body: body(),
-            signal: signal ? AbortSignal.any([signal, timeout]) : timeout,
-          });
-        } catch (error) {
-          if (signal?.aborted) throw error;
-          if (timeout.aborted && attempt < Math.min(retries, 1)) continue; // a slow model rarely speeds up
-          const reason = timeout.aborted ? `no answer within ${Math.round(timeoutMs / 1000)}s` : String(error);
-          throw new StoryError(`Could not reach Gemini (${model}): ${reason}`, { cause: error });
-        }
-
-        if (response.ok) {
-          const data = (await response.json()) as GeminiResponse;
+        }),
+        downgrade: (detail) => {
+          if (thinkingLevel === 'off' || !/thinking/i.test(detail)) return false;
+          thinkingLevel = 'off'; // older models have no thinking level
+          return true;
+        },
+        read: (data: GeminiResponse) => {
           const candidate = data.candidates?.[0];
           const text = candidate?.content?.parts?.map((p) => p.text ?? '').join('') ?? '';
-          if (!text) {
-            const why = data.promptFeedback?.blockReason ?? candidate?.finishReason ?? 'empty answer';
-            throw new StoryError(`Gemini (${model}) returned no story: ${why}`);
-          }
-          return text;
-        }
+          return { text, why: data.promptFeedback?.blockReason ?? candidate?.finishReason };
+        },
+      }, signal),
+  };
+}
 
-        const detail = await errorMessage(response);
-        if (response.status === 400 && thinkingLevel !== 'off' && /thinking/i.test(detail)) {
-          thinkingLevel = 'off'; // older models have no thinking level
-          attempt--;
-          continue;
-        }
-        // A used-up daily quota says "retry in 9h23m"; waiting a few seconds won't help.
-        const wait = /retry in ((?:\d+h)?(?:\d+m)?[\d.]*s?)/i.exec(detail)?.[1];
-        const daily = response.status === 429 && (/per ?day|daily/i.test(detail) || /\d+h/.test(wait ?? ''));
-        const retryable = (response.status === 429 && !daily) || response.status >= 500;
-        if (retryable && attempt < retries) {
-          await sleep(2_000 * 2 ** attempt, signal);
-          continue;
-        }
-        const hint =
-          response.status === 400 && /api key/i.test(detail)
-            ? ' Check the Gemini API key.'
-            : response.status === 404
-              ? ' Check the model name in the codeArchaeologist.model setting.'
-              : daily
-                ? ` The free tier's daily quota for ${model} is used up${wait ? `; it resets in ${wait.replace(/\.\d+s$/, 's')}` : ''}. Pick another model in the codeArchaeologist.model setting, or try later.`
-                : response.status === 429
-                  ? ' The free tier is rate limited; try again in a minute.'
-                  : '';
-        const first = (daily ? detail.split('\n')[0]! : detail).trim().replace(/\.+$/, '');
-        throw new StoryError(`Gemini (${model}) answered ${response.status}: ${first}.${hint}`);
-      }
+/** Any OpenAI-compatible chat completions endpoint, also with plain fetch. */
+export function openAiClient(options: ClientOptions): ModelClient {
+  const model = options.model?.trim() ?? '';
+  const base = trimUrl(options.baseUrl) || DEFAULT_BASE_URL.openai;
+  const url = /\/chat\/completions$/.test(base) ? base : `${base}/chat/completions`;
+  // Not every server takes a JSON schema or a temperature; drop each the first time one is refused.
+  let format: 'json_schema' | 'json_object' | 'none' = 'json_schema';
+  let temperature = true;
+
+  return {
+    model,
+    async generate(prompt, signal) {
+      if (!model) throw new StoryError('Set a model name for the OpenAI-compatible API in the codeArchaeologist.model setting.');
+      return send(options, {
+        name: host(base),
+        model,
+        url,
+        headers: { 'content-type': 'application/json', ...(options.apiKey && { authorization: `Bearer ${options.apiKey}` }) },
+        body: () => ({
+          model,
+          messages: [
+            { role: 'system', content: prompt.system },
+            { role: 'user', content: prompt.user },
+          ],
+          ...(temperature && { temperature: 0.2 }),
+          ...(format === 'json_schema' && { response_format: { type: 'json_schema', json_schema: { name: 'story', schema: prompt.schema } } }),
+          ...(format === 'json_object' && { response_format: { type: 'json_object' } }),
+        }),
+        downgrade: (detail) => {
+          if (temperature && /temperature/i.test(detail)) {
+            temperature = false;
+            return true;
+          }
+          if (format !== 'none' && /response_format|json_schema|json_object|structured/i.test(detail)) {
+            format = format === 'json_schema' ? 'json_object' : 'none';
+            return true;
+          }
+          return false;
+        },
+        read: (data: OpenAiResponse) => {
+          const choice = data.choices?.[0];
+          const content = choice?.message?.content;
+          const text = typeof content === 'string' ? content : (content ?? []).map((p) => p.text ?? '').join('');
+          return { text, why: choice?.message?.refusal ?? choice?.finish_reason };
+        },
+      }, signal);
     },
   };
+}
+
+type Request<T> = {
+  /** Who answered, for error messages: "Gemini" or the API's host. */
+  name: string;
+  model: string;
+  url: string;
+  headers: Record<string, string>;
+  body: () => object;
+  /** Given a 400's message, drops a request option the server refused. True to resend. */
+  downgrade: (detail: string) => boolean;
+  read: (data: T) => { text: string; why?: string | null };
+};
+
+/** Posts the request, retrying a busy or slow model, and turns failures into readable StoryErrors. */
+async function send<T>(options: ClientOptions, req: Request<T>, signal?: AbortSignal): Promise<string> {
+  const doFetch = options.fetch ?? fetch;
+  const timeoutMs = options.timeoutMs ?? 180_000;
+  const retries = options.retries ?? 3;
+  const { name, model } = req;
+
+  for (let attempt = 0; ; attempt++) {
+    const timeout = AbortSignal.timeout(timeoutMs);
+    let response: Response;
+    try {
+      response = await doFetch(req.url, {
+        method: 'POST',
+        headers: req.headers,
+        body: JSON.stringify(req.body()),
+        signal: signal ? AbortSignal.any([signal, timeout]) : timeout,
+      });
+    } catch (error) {
+      if (signal?.aborted) throw error;
+      if (timeout.aborted && attempt < Math.min(retries, 1)) continue; // a slow model rarely speeds up
+      const reason = timeout.aborted ? `no answer within ${Math.round(timeoutMs / 1000)}s` : String(error);
+      throw new StoryError(`Could not reach ${name} (${model}): ${reason}`, { cause: error });
+    }
+
+    if (response.ok) {
+      const { text, why } = req.read((await response.json()) as T);
+      if (!text) throw new StoryError(`${name} (${model}) returned no story: ${why || 'empty answer'}`);
+      return text;
+    }
+
+    const detail = await errorMessage(response);
+    if (response.status === 400 && req.downgrade(detail)) {
+      attempt--;
+      continue;
+    }
+    // A used-up daily quota says "retry in 9h23m"; waiting a few seconds won't help.
+    const wait = /retry in ((?:\d+h)?(?:\d+m)?[\d.]*s?)/i.exec(detail)?.[1];
+    const daily = response.status === 429 && (/per ?day|daily/i.test(detail) || /\d+h/.test(wait ?? ''));
+    const retryable = (response.status === 429 && !daily) || response.status >= 500;
+    if (retryable && attempt < retries) {
+      await sleep(2_000 * 2 ** attempt, signal);
+      continue;
+    }
+    const hint =
+      (response.status === 400 && /api key/i.test(detail)) || response.status === 401 || response.status === 403
+        ? ' Check the API key.'
+        : response.status === 404
+          ? ' Check the model name in the codeArchaeologist.model setting and the API URL in codeArchaeologist.baseUrl.'
+          : daily
+            ? ` The free tier's daily quota for ${model} is used up${wait ? `; it resets in ${wait.replace(/\.\d+s$/, 's')}` : ''}. Pick another model in the codeArchaeologist.model setting, or try later.`
+            : response.status === 429
+              ? ' The API is rate limited; try again in a minute.'
+              : '';
+    const first = (daily ? detail.split('\n')[0]! : detail).trim().replace(/\.+$/, '');
+    throw new StoryError(`${name} (${model}) answered ${response.status}: ${first}.${hint}`);
+  }
 }
 
 type GeminiResponse = {
   candidates?: { content?: { parts?: { text?: string }[] }; finishReason?: string }[];
   promptFeedback?: { blockReason?: string };
 };
+
+type OpenAiResponse = {
+  choices?: { message?: { content?: string | { text?: string }[] | null; refusal?: string | null }; finish_reason?: string }[];
+};
+
+function trimUrl(url: string | undefined): string {
+  return url?.trim().replace(/\/+$/, '') ?? '';
+}
+
+function host(url: string): string {
+  try {
+    return new URL(url).host;
+  } catch {
+    return url;
+  }
+}
 
 async function errorMessage(response: Response): Promise<string> {
   const text = await response.text().catch(() => '');
