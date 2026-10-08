@@ -10,6 +10,7 @@ import {
   describeTimeline,
   modelClient,
   parseHeaders,
+  parseNameList,
   parseProjectKeys,
   StoryCache,
   trace,
@@ -31,7 +32,8 @@ Options:
   --gitlab-url <url> Your self-hosted GitLab; GITLAB_TOKEN is sent only there and to gitlab.com
   --jira-url <url>   Read Jira tickets named in commits and PRs, e.g. PAY-412 (or JIRA_URL).
                      JIRA_TOKEN is sent only there; Jira Cloud also needs JIRA_EMAIL.
-                     JIRA_PROJECTS="PAY,CORE" limits which keys count
+                     JIRA_PROJECTS="PAY,CORE" limits which keys count, and
+                     JIRA_IGNORE_AUTHORS="gitlab-bot, Jenkins" drops those commenters
   --story            Ask an LLM for per-commit notes, a summary and a risk verdict
                      (Gemini by default, with GEMINI_API_KEY)
   --provider <name>  gemini (default) or openai, for any OpenAI-compatible API
@@ -118,6 +120,7 @@ async function main(argv: string[]): Promise<number> {
       email: process.env.JIRA_EMAIL || undefined,
       token: process.env.JIRA_TOKEN || undefined,
       projects: parseProjectKeys(process.env.JIRA_PROJECTS),
+      ignoreAuthors: parseNameList(process.env.JIRA_IGNORE_AUTHORS),
       onProgress: progress,
     });
     if (timeline.jira?.error && !values.json) console.error(`warning: ${timeline.jira.error}`);

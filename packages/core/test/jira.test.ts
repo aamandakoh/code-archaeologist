@@ -1,5 +1,5 @@
 import { describe, expect, test } from 'vitest';
-import { addJiraContext, buildStoryPrompt, checkJira, jiraBase, jiraKeys, parseProjectKeys, parseStory, type Timeline } from '../src/index.js';
+import { addJiraContext, buildStoryPrompt, checkJira, isMentionNotice, parseNameList, jiraBase, jiraKeys, parseProjectKeys, parseStory, type Timeline } from '../src/index.js';
 
 describe('jiraKeys', () => {
   test('finds keys once each, in order, and skips UTF-8 and friends', () => {
@@ -12,6 +12,14 @@ describe('jiraKeys', () => {
     expect(jiraKeys('PAY-1 CORE-2 OPS-3', ['pay', 'OPS'])).toEqual(['PAY-1', 'OPS-3']);
     expect(parseProjectKeys('PAY, core; ops  x-1')).toEqual(['PAY', 'CORE', 'OPS']);
   });
+});
+
+test('mention notices and ignored names', () => {
+  expect(isMentionNotice('Ann mentioned this issue in a commit of team/app on branch main')).toBe(true);
+  expect(isMentionNotice('[Ann|u] mentioned this issue in [merge request !31|u]')).toBe(true);
+  expect(isMentionNotice('Bo mentioned this issue in a branch of team/app')).toBe(true);
+  expect(isMentionNotice('As Dana mentioned, this issue is about rounding.')).toBe(false);
+  expect(parseNameList('gitlab-bot, Jenkins CI;\nx')).toEqual(['gitlab-bot', 'Jenkins CI', 'x']);
 });
 
 test('jiraBase normalises what people paste', () => {
@@ -57,6 +65,8 @@ describe('addJiraContext', () => {
         comments: [
           { id: '10', body: { type: 'doc', content: [{ type: 'paragraph', content: [{ type: 'text', text: 'Finance signed off.' }] }] }, author: { displayName: 'Dana' }, created: '2024-05-28T00:00:00.000+0000' },
           { id: '11', body: 'Build passed', author: { displayName: 'Jira Automation', accountType: 'app' } },
+          { id: '12', body: '[Ann Lee|https://gitlab.example.com/ann] mentioned this issue in [a commit of team/app|https://gitlab.example.com/c/1]:\n{quote}PAY-412 Round per line{quote}', author: { displayName: 'Ann Lee' } },
+          { id: '13', body: 'Deployed to staging.', author: { displayName: 'Deploy Robot', name: 'deployer' } },
         ],
       },
     },
@@ -76,7 +86,7 @@ describe('addJiraContext', () => {
 
   test('reads tickets from commit messages and PR descriptions, with Cloud basic auth', async () => {
     const { calls, fetch } = fakeJira({ '/issue/PAY-412': { status: 200, body: issue } });
-    const out = await addJiraContext(timeline, { url: 'https://acme.atlassian.net', email: 'me@acme.test', token: 'tok', fetch });
+    const out = await addJiraContext(timeline, { url: 'https://acme.atlassian.net', email: 'me@acme.test', token: 'tok', ignoreAuthors: ['DEPLOYER'], fetch });
     expect(calls.map((c) => c.url.split('?')[0])).toEqual([
       'https://acme.atlassian.net/rest/api/2/issue/PAY-412',
       'https://acme.atlassian.net/rest/api/2/issue/CORE-9',

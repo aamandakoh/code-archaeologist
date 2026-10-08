@@ -25,8 +25,8 @@ cited "safe to change?" verdict near the top.
 The panel on Angular's URL sanitizer (`url_sanitizer.ts` lines 38-48, the [demo snippet](#demo-snippet)),
 on the latest commit: the 2026 revert of a stricter `data:` and `vbscript:` check. The file and
 commit count stay pinned at the top, with the verdict and its cited reasons under them; clicking the
-verdict's header row folds the reasons away. Under the slider, **All 18 commits, oldest first** opens
-a list of every commit to jump to. The commit
+verdict's header row folds the reasons away. On the line under the slider, **View all 18 commits** opens
+a list of every commit to jump to, with the diff option and key hints on the right. The commit
 card puts the author and date beside how long after the previous change it came, links the
 commit, its pull request and the file at that commit on one line, then the AI note and the diff
 with removed lines kept visible. Below the diff, dropdowns hold the full commit message, the pull
@@ -38,7 +38,7 @@ from the public pull requests.
 ![The Code Archaeologist panel: pinned file header, a high-risk verdict with cited reasons, the commit timeline, and the revert commit's author and date, links, note, diff and an open pull request dropdown](docs/panel.png)
 
 The settings screen (**Code Archaeologist: Open settings screen**), with the default Gemini provider, a
-saved key and GitHub token, and Jira Cloud set up with **Test connection** passing. Keys, tokens and
+saved key and GitHub token, and Jira Cloud set up with a bot's comments ignored and **Test connection** passing. Keys, tokens and
 extra headers are never shown.
 
 ![The Code Archaeologist settings screen: quick setup presets, AI model, extra request headers, and the GitHub, GitLab and Jira sections](docs/settings.png)
@@ -71,6 +71,7 @@ are kept in VS Code secret storage, and **Test connection** checks them before y
 | Jira URL | **Must**, to use Jira | Your Jira, e.g. `https://yourcompany.atlassian.net`. Ticket keys like `PAY-412` in commit messages and PR or MR titles and descriptions are read from here. |
 | Jira email and API token | **Should**, for private Jira | Jira Cloud: your Atlassian email plus an API token from [id.atlassian.com](https://id.atlassian.com/manage-profile/security/api-tokens). Data Center or Server: leave the email empty and use a personal access token. Only ever sent to the Jira URL. Also read from `JIRA_EMAIL` and `JIRA_TOKEN`. |
 | Jira project keys | Optional | Only match these keys, e.g. `PAY, CORE`. Empty matches any `ABC-123` except a few that are rarely tickets, like `UTF-8`. |
+| Ignore Jira comments from | Optional | Comment authors to leave out, by display name, username or email, e.g. `gitlab-bot, Jenkins`. "Mentioned this issue in a commit" notices are always left out. Also read from `JIRA_IGNORE_AUTHORS`. |
 
 ## Status
 
@@ -190,6 +191,10 @@ with an API token; Jira Data Center and Server take a personal access token alon
 kept in secret storage (or `JIRA_TOKEN`) and only ever sent to the Jira URL. Without one, only
 public tickets can be read. Keys like `UTF-8` or `SHA-256` are ignored; to match only your teams'
 projects, set `codeArchaeologist.jiraProjects` (`JIRA_PROJECTS`) to e.g. `PAY, CORE`.
+Comments that only say a commit, branch or merge request mentioned the ticket (as the GitLab,
+GitHub and Bitbucket integrations post) are left out, as are Jira's own automation and app
+accounts; list any other bots in `codeArchaeologist.jiraIgnoreAuthors` (`JIRA_IGNORE_AUTHORS`),
+e.g. `gitlab-bot, Jenkins`.
 **Test connection** checks the URL and credentials and says who Jira takes you for.
 
 ## AI story

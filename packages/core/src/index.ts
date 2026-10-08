@@ -38,4 +38,4 @@ export {
   type ForgeRef,
 } from './github.js';
 export { addGitLabContext, parseGitLabRemote, gitlabLinkedRefs, mrFromMessage, tokenAllowed, GitLabError, type GitLabOptions } from './gitlab.js';
-export { addJiraContext, jiraKeys, jiraBase, checkJira, parseProjectKeys, JiraError, type JiraOptions } from './jira.js';
+export { addJiraContext, jiraKeys, jiraBase, checkJira, parseProjectKeys, parseNameList, isMentionNotice, JiraError, type JiraOptions } from './jira.js';

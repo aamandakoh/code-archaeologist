@@ -75,6 +75,7 @@ export class SettingsPanel {
     await config.update('jiraUrl', values.jiraUrl.trim() || undefined, target);
     await config.update('jiraEmail', values.jiraEmail.trim() || undefined, target);
     await config.update('jiraProjects', values.jiraProjects.trim() || undefined, target);
+    await config.update('jiraIgnoreAuthors', values.jiraIgnore.trim() || undefined, target);
     for (const [name, value] of Object.entries(secrets) as [SecretName, string | null][]) {
       if (value === null) await this.host.secrets.delete(SECRETS[name]);
       else if (value.trim()) await this.host.secrets.store(SECRETS[name], value.trim());
@@ -93,6 +94,7 @@ export class SettingsPanel {
       jiraUrl: config.get<string>('jiraUrl') ?? '',
       jiraEmail: config.get<string>('jiraEmail') ?? '',
       jiraProjects: config.get<string>('jiraProjects') ?? '',
+      jiraIgnore: config.get<string>('jiraIgnoreAuthors') ?? '',
     };
     const where = async (name: SecretName, ...env: (string | undefined)[]) =>
       (await this.host.secrets.get(SECRETS[name])) ? 'saved' : env.some(Boolean) ? 'env' : 'none';

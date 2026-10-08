@@ -7,7 +7,7 @@ editor with every commit that touched those lines, oldest first:
   lines that commit removed folding away, then the lines it added growing in.
 - Dots are coloured by kind of change
   (feature, fix, revert, refactor, docs) with year labels, and the commits the verdict cites are
-  ringed. **All N commits, oldest first** under the slider opens a list of every commit to pick from.
+  ringed. **View all N commits** under the slider opens a list of every commit to pick from.
 - Each step says who made the change, when, and how long after the previous change it came, links
   to the commit and to the file as it was at that commit, and keeps removed lines on screen as a
   diff (untick **Keep removed lines visible** to hide them).
@@ -52,7 +52,8 @@ Jira tickets named in commit messages and pull request or merge request titles a
 (like `PAY-412`) become evidence too. On the settings screen, set the Jira URL, and for Jira Cloud
 your Atlassian email with an API token, or for Data Center or Server a personal access token. The
 token is kept in secret storage and only ever sent to that Jira URL. Optional project keys limit
-which keys count; **Test connection** checks it all.
+which keys count, and "Ignore comments from" leaves out bots by name ("mentioned this issue in a
+commit" notices are always left out); **Test connection** checks it all.
 
 The LLM API URL and provider, the GitLab URL and the Jira URL are read from your user settings only, never from a
 workspace's `.vscode/settings.json`, so a repository you open cannot send your keys elsewhere.

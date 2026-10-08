@@ -9,6 +9,8 @@ export type SettingsValues = {
   jiraEmail: string;
   /** Comma-separated project keys to match, e.g. "PAY, CORE". Empty matches any key. */
   jiraProjects: string;
+  /** Comma-separated comment authors to leave out, e.g. "gitlab-bot, Jenkins". */
+  jiraIgnore: string;
 };
 
 /** `llmHeaders` is extra headers for LLM requests, "Name: value" per line: they may carry auth, so they are kept as a secret. */

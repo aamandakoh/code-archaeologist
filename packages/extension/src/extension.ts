@@ -7,6 +7,7 @@ import {
   GitHubCache,
   modelClient,
   parseHeaders,
+  parseNameList,
   parseProjectKeys,
   type Provider,
   StoryCache,
@@ -67,12 +68,18 @@ export function activate(context: vscode.ExtensionContext): void {
   }
 
   /** Jira from settings, or undefined when no Jira URL is set. The token only ever goes to that URL. */
-  async function jiraSettings(): Promise<{ url: string; email?: string; token?: string; projects: string[] } | undefined> {
+  async function jiraSettings(): Promise<{ url: string; email?: string; token?: string; projects: string[]; ignoreAuthors: string[] } | undefined> {
     const config = vscode.workspace.getConfiguration('codeArchaeologist');
     const url = config.get<string>('jiraUrl')?.trim();
     if (!url) return undefined;
     const email = config.get<string>('jiraEmail')?.trim() || process.env.JIRA_EMAIL || undefined;
-    return { url, email, token: await jiraToken(), projects: parseProjectKeys(config.get<string>('jiraProjects')) };
+    return {
+      url,
+      email,
+      token: await jiraToken(),
+      projects: parseProjectKeys(config.get<string>('jiraProjects')),
+      ignoreAuthors: parseNameList(config.get<string>('jiraIgnoreAuthors')),
+    };
   }
 
   /** Reads PRs (or GitLab merge requests), reviews, issues and Jira tickets for the raw trace, then writes the story from all of it. */

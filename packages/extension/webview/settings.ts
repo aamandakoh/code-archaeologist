@@ -169,6 +169,11 @@ function render(): void {
       field('Email', input('jiraEmail', v.jiraEmail, 'you@company.com', (value) => (v.jiraEmail = value)), hint('Jira Cloud only. Leave empty for Jira Data Center or Server.')),
       secretField('jiraToken', 'API token', 'JIRA_TOKEN', 'Jira Cloud: an API token from id.atlassian.com/manage-profile/security/api-tokens. Data Center or Server: a personal access token.'),
       field('Project keys', input('jiraProjects', v.jiraProjects, 'PAY, CORE (optional)', (value) => (v.jiraProjects = value)), hint('Only match these keys. Leave empty to match any ABC-123 pattern.')),
+      field(
+        'Ignore comments from',
+        input('jiraIgnore', v.jiraIgnore, 'gitlab-bot, Jenkins (optional)', (value) => (v.jiraIgnore = value)),
+        hint('Display names, usernames or emails, comma-separated. "Mentioned this issue in a commit" notices are always left out.'),
+      ),
       el(
         'div',
         { class: 'row' },

@@ -132,7 +132,7 @@ function renderTimeline(t: Timeline) {
     'header',
     { class: 'summary' },
     el('h1', { text: `${t.file}:${start}-${end}` }),
-    el('p', { class: 'meta', text: `${plural(t.steps.length, 'commit')} · ${span}${t.context ? ` · ${plural(t.context.prs, forge(t).pr)} from ${forge(t).name}` : ''}` }),
+    el('p', { class: 'meta', text: `${plural(t.steps.length, 'commit')} · ${span}` }),
     noise,
   );
 
@@ -170,7 +170,7 @@ function renderTimeline(t: Timeline) {
   const list = el(
     'details',
     { class: 'history', attrs: view.commitsOpen ? { open: '' } : {} },
-    el('summary', { text: `All ${plural(t.steps.length, 'commit')}, oldest first` }),
+    el('summary', { text: `View all ${plural(t.steps.length, 'commit')}`, attrs: { title: 'Oldest first' } }),
     el(
       'ol',
       { attrs: { id: 'commit-list' } },
@@ -209,13 +209,18 @@ function renderTimeline(t: Timeline) {
       next,
       el('span', { class: 'position', attrs: { id: 'position' } }),
     ),
+    // One row: the commit list on the left, the diff option and key hints on the right.
     el(
       'div',
       { class: 'options' },
-      el('label', { attrs: { for: 'show-removed' } }, removedToggle, ' Keep removed lines visible'),
-      el('span', { class: 'hint', text: 'Click a dot · ← → step · Home End jump' }),
+      list,
+      el(
+        'div',
+        { class: 'options-right' },
+        el('label', { attrs: { for: 'show-removed' } }, removedToggle, ' Keep removed lines visible'),
+        el('span', { class: 'hint', text: 'Click a dot · ← → step · Home End jump' }),
+      ),
     ),
-    list,
     el('div', { attrs: { id: 'step' } }),
   );
 

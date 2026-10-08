@@ -144,8 +144,19 @@ summary { cursor: pointer; color: var(--muted); }
 .controls .dot[class*='kind-'] { background: var(--kind); }
 
 .options { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 14px; margin: 0 0 var(--gap); color: var(--muted); font-size: 0.9em; }
+.options-right { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 14px; margin-left: auto; }
 .options label { display: inline-flex; align-items: center; gap: 4px; cursor: pointer; }
-.options .hint { margin-left: auto; opacity: 0.8; }
+.options .hint { opacity: 0.8; }
+/* Opened, the commit list takes the full width under its summary; the options stay on the summary's line when it is wide enough. */
+.options .history[open] { flex-basis: 100%; }
+@media (min-width: 620px) {
+  .options:has(.history[open]) { position: relative; }
+  .options:has(.history[open]) .options-right { position: absolute; top: 0; right: 0; min-height: 1.9em; }
+}
+@media (max-width: 619px) {
+  .options .history[open] { order: 2; }
+}
+.options .history ol { font-size: calc(1em / 0.9); color: var(--vscode-foreground); }
 
 .kind {
   display: inline-block; padding: 0 7px; border-radius: 9px; font-size: 0.8em; line-height: 1.6;
@@ -208,7 +219,6 @@ summary { cursor: pointer; color: var(--muted); }
 .ln { width: 3.5em; flex: none; text-align: right; padding-right: 8px; color: var(--vscode-editorLineNumber-foreground, var(--muted)); user-select: none; }
 .mark { width: 1.2em; flex: none; color: var(--muted); user-select: none; }
 
-.history { margin: 4px 0 10px; }
 .history > summary { padding: 4px 0; }
 .history ol { list-style: none; margin: 4px 0 0; padding: 0; max-height: 40vh; overflow-y: auto; position: relative; }
 .history li {

@@ -10,6 +10,8 @@ export type JiraOptions = {
   token?: string;
   /** Project keys to match, e.g. ["PAY", "CORE"]. Empty matches any ABC-123, minus a few that are rarely tickets. */
   projects?: string[];
+  /** Comment authors to leave out, by display name, username or email, e.g. ["gitlab-bot"]. Case does not matter. */
+  ignoreAuthors?: string[];
   signal?: AbortSignal;
   onProgress?: (message: string) => void;
   /** Requests in flight at once. */
@@ -36,6 +38,22 @@ export function jiraKeys(text: string, projects: string[] = []): string[] {
     out.add(`${project}-${m[2]}`);
   }
   return [...out];
+}
+
+/** "gitlab-bot, Jenkins CI" → ["gitlab-bot", "Jenkins CI"]: names may hold spaces, so only commas, semicolons and new lines split. */
+export function parseNameList(text: string | undefined): string[] {
+  return (text ?? '')
+    .split(/[,;\n]+/)
+    .map((n) => n.trim())
+    .filter(Boolean);
+}
+
+/**
+ * A comment that only says a commit, branch or merge request mentioned the ticket, as the GitLab,
+ * GitHub and Bitbucket integrations post: "[Ann|…] mentioned this issue in [a commit of team/app|…]".
+ */
+export function isMentionNotice(body: string): boolean {
+  return /\bmentioned (?:this|the) (?:issue|ticket|work item) in (?:an? )?(?:\[?\s*)?(?:commit|branch|merge request|pull request|MR|PR)\b/i.test(body.slice(0, 300));
 }
 
 /** "PAY, core" → ["PAY", "CORE"]. */
@@ -121,7 +139,7 @@ export class JiraError extends Error {
   }
 }
 
-type ApiUser = { displayName?: string; name?: string; accountType?: string } | null | undefined;
+type ApiUser = { displayName?: string; name?: string; emailAddress?: string; accountType?: string } | null | undefined;
 type ApiComment = { id: string; body?: unknown; author?: ApiUser; created?: string };
 type ApiIssue = {
   key: string;
@@ -155,8 +173,10 @@ class JiraApi {
     const url = `${this.base}/browse/${issue.key}`;
     const comments = (f.comment?.comments ?? [])
       .map((c): Review | undefined => {
-        const body = clip(stripTemplate(text(c.body)), KEEP.commentChars);
-        if (!body || isBot(c.author)) return undefined;
+        const raw = text(c.body);
+        if (!raw || isBot(c.author) || this.ignored(c.author) || isMentionNotice(raw)) return undefined;
+        const body = clip(stripTemplate(raw), KEEP.commentChars);
+        if (!body) return undefined;
         return { author: who(c.author), body, url: `${url}?focusedCommentId=${c.id}`, ...(c.created && { date: c.created }) };
       })
       .filter((c): c is Review => c !== undefined)
@@ -173,6 +193,11 @@ class JiraApi {
       ...(body && { body }),
       comments,
     };
+  }
+
+  private ignored(user: ApiUser): boolean {
+    const names = new Set((this.options.ignoreAuthors ?? []).map((n) => n.trim().toLowerCase()).filter(Boolean));
+    return [user?.displayName, user?.name, user?.emailAddress].some((n) => n !== undefined && names.has(n.toLowerCase()));
   }
 
   /** GET a path under the REST API. Resolves undefined for 404 (no such ticket, or no access to it). */

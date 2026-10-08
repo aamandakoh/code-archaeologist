@@ -2,7 +2,7 @@
   "name": "code-archaeologist",
   "displayName": "Code Archaeologist",
   "description": "Select code and see how it evolved commit by commit, and why.",
-  "version": "0.12.1",
+  "version": "0.13.0",
   "icon": "media/icon.png",
   "private": true,
   "publisher": "code-archaeologist",
@@ -126,6 +126,13 @@
           "scope": "application",
           "default": "",
           "markdownDescription": "Jira project keys to match, comma-separated, e.g. `PAY, CORE`. Empty matches any `ABC-123` pattern except a few common non-tickets like `UTF-8`."
+        },
+        "codeArchaeologist.jiraIgnoreAuthors": {
+          "type": "string",
+          "order": 7,
+          "scope": "application",
+          "default": "",
+          "markdownDescription": "Jira comment authors to leave out, comma-separated, by display name, username or email, e.g. `gitlab-bot, Jenkins`. Comments that only say a commit, branch or merge request mentioned the ticket are always left out."
         },
         "codeArchaeologist.model": {
           "type": "string",
