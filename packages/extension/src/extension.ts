@@ -177,6 +177,15 @@ export function activate(context: vscode.ExtensionContext): void {
     if (shown) void explain(shown.raw, shown.panel);
   }
 
+  /** Trusts the GitLab the token was just held back from: the URL comes from the trace, not the page. */
+  async function trustGitLab(): Promise<void> {
+    const url = shown?.timeline.context?.tokenHeldBackFrom;
+    if (!url) return;
+    await vscode.workspace.getConfiguration('codeArchaeologist').update('gitlabUrl', url, vscode.ConfigurationTarget.Global);
+    void vscode.window.showInformationMessage(`Code Archaeologist: GitLab URL set to ${url}. Your GitLab token is now sent there.`);
+    if (shown) void explain(shown.raw, shown.panel);
+  }
+
   function openSettings(): void {
     SettingsPanel.show(context.extensionUri, {
       secrets: context.secrets,
@@ -216,6 +225,7 @@ export function activate(context: vscode.ExtensionContext): void {
     if (message.type === 'set-key') void setApiKey();
     if (message.type === 'set-github-token') void setGitHubToken();
     if (message.type === 'set-gitlab-token') void setGitLabToken();
+    if (message.type === 'trust-gitlab') void trustGitLab();
     if (message.type === 'open-settings') openSettings();
     if (message.type === 'retry-story' && shown) void tellStory(shown.timeline, shown.raw, shown.panel);
   };

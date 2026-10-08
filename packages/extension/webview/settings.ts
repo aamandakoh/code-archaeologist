@@ -146,7 +146,7 @@ function render(): void {
       field(
         'GitLab URL',
         input('gitlabUrl', v.gitlabUrl, 'https://git.example.com', (value) => (v.gitlabUrl = value)),
-        hint('Only for a self-hosted GitLab without "gitlab" in its address. gitlab.com and gitlab.* are found on their own.'),
+        hint('Your self-hosted GitLab. The token is only sent to gitlab.com and this address, so set it for any other GitLab.'),
       ),
       secretField('gitlabToken', 'Token', 'GITLAB_TOKEN', 'A personal access token with the read_api scope. Needed for private projects and for comments.'),
     ),

@@ -90,6 +90,8 @@ export type GitHubContext = {
   issues: number;
   /** Set when some or all of the context could not be read. The timeline is still usable. */
   error?: string;
+  /** The GitLab a token was held back from, because it is neither gitlab.com nor the configured `gitlabUrl`. */
+  tokenHeldBackFrom?: string;
 };
 
 export type NoiseReason = 'whitespace' | 'formatting' | 'license-header';

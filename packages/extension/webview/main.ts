@@ -555,6 +555,7 @@ function renderStory(t: Timeline, state: AiState): HTMLElement {
           'pending failed',
           el('p', { class: 'error', text: `Could not write the story. ${state.message}` }),
           el('p', { class: 'actions' }, button('Try again', { type: 'retry-story' }), ' ', button('Settings', { type: 'open-settings' }, 'secondary')),
+          githubNotice(t),
         );
       default:
         return section('pending', el('p', { text: 'No story for these lines.' }));
@@ -645,12 +646,25 @@ function githubNotice(t: Timeline): HTMLElement | undefined {
   if (!c?.error) return undefined;
   const { name, pr } = forge(t);
   const notice = el('p', { class: 'github-notice', text: `${pr[0]!.toUpperCase()}${pr.slice(1)}s and reviews may be missing. ${c.error}` });
-  if (!c.token) {
+  if (!c.token && !c.tokenHeldBackFrom) {
     const b = el('button', { class: 'action secondary', text: `Add ${name} token` });
     b.addEventListener('click', () => vscode.postMessage({ type: t.gitlab ? 'set-gitlab-token' : 'set-github-token' }));
     notice.append(' ', b);
   }
+  if (c.tokenHeldBackFrom) {
+    const b = el('button', { class: 'action secondary', text: `Use my token on ${hostOf(c.tokenHeldBackFrom)}` });
+    b.addEventListener('click', () => vscode.postMessage({ type: 'trust-gitlab' }));
+    notice.append(' ', b);
+  }
   return notice;
+}
+
+function hostOf(url: string): string {
+  try {
+    return new URL(url).host;
+  } catch {
+    return url;
+  }
 }
 
 /** The PR, linked issues and review discussion behind one commit. */

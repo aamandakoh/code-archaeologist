@@ -20,7 +20,7 @@ export type TraceOptions = {
   cache?: TimelineCache;
   /** Called with short progress lines such as "Tracing 19 commits". */
   onProgress?: (message: string) => void;
-  /** A self-hosted GitLab whose host name has no "gitlab" in it, e.g. "https://git.example.com". */
+  /** A self-hosted GitLab, e.g. "https://git.example.com". Needed to find it when its host has no "gitlab" in it. */
   gitlabUrl?: string;
 };
 

@@ -23,5 +23,7 @@ export type FromWebview =
   | { type: 'set-key' }
   | { type: 'set-github-token' }
   | { type: 'set-gitlab-token' }
+  /** Sets the GitLab URL to the traced repository's GitLab, so the token is sent there. */
+  | { type: 'trust-gitlab' }
   | { type: 'open-settings' }
   | { type: 'retry-story' };

@@ -25,7 +25,7 @@ Options:
   --no-github        Skip pull requests, reviews and issues from GitHub or GitLab. They
                      are read when origin is on github.com (with GITHUB_TOKEN if set) or
                      on GitLab (with GITLAB_TOKEN, needed for private projects)
-  --gitlab-url <url> A self-hosted GitLab whose host name has no "gitlab" in it
+  --gitlab-url <url> Your self-hosted GitLab; GITLAB_TOKEN is sent only there and to gitlab.com
   --story            Ask an LLM for per-commit notes, a summary and a risk verdict
                      (Gemini by default, with GEMINI_API_KEY)
   --provider <name>  gemini (default) or openai, for any OpenAI-compatible API

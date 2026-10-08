@@ -121,6 +121,8 @@ describe('addGitLabContext', () => {
     expect(headers.every((h) => h?.['private-token'] === undefined)).toBe(true);
     expect(out.context?.token).toBe(false);
     expect(out.context?.error).toMatch(/token was not sent to gitlab\.example\.com/);
+    expect(out.context?.error).toContain('set GitLab URL to https://gitlab.example.com');
+    expect(out.context?.tokenHeldBackFrom).toBe('https://gitlab.example.com');
   });
 
   test('reads what it can without a token when comments need one', async () => {
@@ -149,4 +151,6 @@ test('tokenAllowed only trusts gitlab.com and the configured GitLab', () => {
   expect(tokenAllowed('https://corp.example/gitlab', 'https://corp.example/gitlab')).toBe(true);
   expect(tokenAllowed('https://gitlab.com.evil.example')).toBe(false);
   expect(tokenAllowed('https://gitlab.example.com', 'not a url')).toBe(false);
+  expect(tokenAllowed('https://gitlab.example.com', 'gitlab.example.com')).toBe(true);
+  expect(tokenAllowed('https://gitlab.example.com', 'http://gitlab.example.com')).toBe(false);
 });

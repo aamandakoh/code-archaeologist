@@ -55,7 +55,7 @@ are kept in VS Code secret storage, and **Test connection** checks them before y
 | Provider, API URL and model | Optional | Defaults to Gemini with `gemini-3.5-flash`. Pick **OpenAI-compatible** to use OpenAI, OpenRouter, or a local server like Ollama or LM Studio. That format needs a model id, and a local server usually needs no key. |
 | GitHub token | **Should**, for GitHub repos | Lets the story cite PRs, review comments and linked issues. Without one GitHub allows only 60 requests an hour, and private repos can't be read. A fine-grained token with read access to pull requests and issues is enough. Also read from `GITHUB_TOKEN`. |
 | GitLab token | **Should**, for GitLab repos | The same for merge requests, comments and issues. Needs the `read_api` scope. Also read from `GITLAB_TOKEN`. |
-| GitLab URL | Only for self-hosted GitLab | Needed when your GitLab's host name doesn't contain "gitlab", e.g. `https://git.example.com`. |
+| GitLab URL | **Must**, for self-hosted GitLab | Your GitLab's address, e.g. `https://gitlab.example.com`. The GitLab token is only sent to gitlab.com and this address. When a trace holds the token back, the panel has a button that sets this for you. |
 
 ## Status
 
@@ -146,8 +146,9 @@ on their own; for another self-hosted host set `codeArchaeologist.gitlabUrl` (CL
 `--gitlab-url` or `GITLAB_URL`). Private projects, and comments even on public gitlab.com
 projects, need a personal access token with `read_api`: **Code Archaeologist: Set GitLab token**
 in VS Code, or `GITLAB_TOKEN` for the CLI. The token is sent only to gitlab.com and to the GitLab
-in `codeArchaeologist.gitlabUrl`, so a repository cloned from some other "gitlab" host is read
-without it; set `gitlabUrl` to that host to use your token there.
+in `codeArchaeologist.gitlabUrl`, so a self-hosted GitLab needs that setting even when its name
+has "gitlab" in it. Until it is set, the panel says the token was held back, with a
+**Use my token on** button that sets it to that host.
 
 ## AI story
 

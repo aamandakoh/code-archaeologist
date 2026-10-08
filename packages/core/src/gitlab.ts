@@ -8,7 +8,7 @@ export type GitLabOptions = {
   token?: string;
   /**
    * The self-hosted GitLab the token is for. The token goes only to gitlab.com and this host, never
-   * to another server that merely has "gitlab" in its name.
+   * to another server, even one with "gitlab" in its name.
    */
   gitlabUrl?: string;
   /** When given, every response is kept on disk, so a rerun makes no requests. */
@@ -35,23 +35,30 @@ export async function addGitLabContext(timeline: Timeline, options: GitLabOption
   const out = await addForgeContext(timeline, new GitLabApi(project, scoped), scoped, 'gitlab');
   if (options.token && !allowed && out.context) {
     const host = new URL(project.url).host;
-    const note = `Your GitLab token was not sent to ${host}. To use it there, set codeArchaeologist.gitlabUrl (CLI: --gitlab-url) to ${project.url}.`;
+    const note =
+      `Your GitLab token was not sent to ${host}: it only goes to gitlab.com and the GitLab URL in settings. ` +
+      `To use it there, set GitLab URL to ${project.url} (codeArchaeologist.gitlabUrl; CLI: --gitlab-url).`;
     out.context.error = out.context.error ? `${note} ${out.context.error}` : note;
+    out.context.tokenHeldBackFrom = project.url;
   }
   return out;
 }
 
 /** True when a GitLab token may be sent to `url`: gitlab.com, or the GitLab the user set in `gitlabUrl`. */
 export function tokenAllowed(url: string, gitlabUrl?: string): boolean {
-  const origin = (u: string | undefined) => {
-    try {
-      return u?.trim() ? new URL(u.trim()).origin : undefined;
-    } catch {
-      return undefined;
-    }
-  };
-  const target = origin(url);
-  return target !== undefined && (target === 'https://gitlab.com' || target === origin(gitlabUrl));
+  const target = gitlabBase(url)?.origin;
+  return target !== undefined && (target === 'https://gitlab.com' || target === gitlabBase(gitlabUrl)?.origin);
+}
+
+/** A GitLab URL as typed, with https:// assumed when the scheme is left off ("gitlab.example.com"). */
+function gitlabBase(url: string | undefined): URL | undefined {
+  const u = url?.trim();
+  if (!u) return undefined;
+  try {
+    return new URL(/^[a-z][a-z\d+.-]*:\/\//i.test(u) ? u : `https://${u}`);
+  } catch {
+    return undefined;
+  }
 }
 
 /** The merge request number GitLab wrote into a merge commit: "See merge request group/project!123". */
@@ -101,12 +108,7 @@ export function parseGitLabRemote(remote: string, gitlabUrl?: string): { url: st
     /^(?:[^@/]+@)?([^/:]+):(.+?)(?:\.git)?\/?$/.exec(remote.trim());
   if (!m) return undefined;
   const [, host, fullPath] = m as unknown as [string, string, string];
-  let base: URL | undefined;
-  try {
-    base = gitlabUrl?.trim() ? new URL(gitlabUrl.trim()) : undefined;
-  } catch {
-    base = undefined;
-  }
+  const base = gitlabBase(gitlabUrl);
   if (base?.hostname === host.toLowerCase()) {
     // A GitLab served under a path, e.g. https://example.com/gitlab: the remote's path starts with it.
     const prefix = base.pathname.replace(/^\/+|\/+$/g, '');
@@ -202,7 +204,8 @@ class GitLabApi implements Forge {
   /** GET a path under the project. Resolves undefined for 404 (unknown commit or MR, or no access). */
   private async get<T>(route: string): Promise<T | undefined> {
     if (this.fatal) throw this.fatal;
-    const cacheKey = `gitlab:${this.project.url}/${this.project.project}${route}`;
+    // Kept apart by whether a token was sent, as for GitHub: a private project is a 404 without one.
+    const cacheKey = `gitlab:${this.options.token ? 'token' : 'anon'}:${this.project.url}/${this.project.project}${route}`;
     const cached = await this.options.cache?.get(cacheKey);
     if (cached) return (cached.data ?? undefined) as T | undefined;
 
