@@ -6,6 +6,7 @@ cited "safe to change?" verdict pinned at the top.
 
 ## Contents
 
+- [Screenshots](#screenshots)
 - [Install](#install)
   - [Settings](#settings)
 - [Status](#status)
@@ -16,6 +17,20 @@ cited "safe to change?" verdict pinned at the top.
   - [GitLab](#gitlab)
 - [AI story](#ai-story)
 - [Demo snippet](#demo-snippet)
+
+## Screenshots
+
+The panel on Angular's URL sanitizer (`url_sanitizer.ts` lines 38-48, the [demo snippet](#demo-snippet)),
+stepped back to the 2023 commit that switched it to blocking only `javascript:` URLs. The verdict
+reason that cites this commit is highlighted. This run had no GitHub token, so the story is written
+from commit messages and diffs alone.
+
+![The Code Archaeologist panel: a high-risk verdict with cited reasons, the commit timeline, and the 2023 commit's note and code](docs/panel.png)
+
+The settings screen (**Code Archaeologist: Open settings**), with the default Gemini provider and a
+saved key and GitHub token. Keys and tokens are never shown.
+
+![The Code Archaeologist settings screen: AI model, GitHub and GitLab sections](docs/settings.png)
 
 ## Install
 
