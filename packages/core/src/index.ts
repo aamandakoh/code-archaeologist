@@ -1,4 +1,4 @@
-export type { Timeline, Step, Commit, NoiseCommit, NoiseReason, Story, Citation, Review, LinkedIssue, GitHubContext } from './types.js';
+export type { Timeline, Step, Commit, NoiseCommit, NoiseReason, Story, Citation, Review, LinkedIssue, GitHubContext, JiraTicket, JiraContext } from './types.js';
 export { trace, buildTimeline, locateFile, parseGitHubRemote, type TraceOptions, type FileLocation } from './trace.js';
 export { parseLineLog, postImage, preImage, LOG_FORMAT, type RawCommit, type Hunk } from './lineLog.js';
 export { classifyNoise } from './noise.js';
@@ -38,3 +38,4 @@ export {
   type ForgeRef,
 } from './github.js';
 export { addGitLabContext, parseGitLabRemote, gitlabLinkedRefs, mrFromMessage, tokenAllowed, GitLabError, type GitLabOptions } from './gitlab.js';
+export { addJiraContext, jiraKeys, jiraBase, checkJira, parseProjectKeys, JiraError, type JiraOptions } from './jira.js';

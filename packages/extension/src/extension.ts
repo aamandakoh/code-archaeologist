@@ -2,9 +2,12 @@ import * as vscode from 'vscode';
 import {
   addGitHubContext,
   addGitLabContext,
+  addJiraContext,
+  checkJira,
   GitHubCache,
   modelClient,
   parseHeaders,
+  parseProjectKeys,
   type Provider,
   StoryCache,
   TimelineCache,
@@ -59,26 +62,45 @@ export function activate(context: vscode.ExtensionContext): void {
     return (await context.secrets.get(GITLAB_SECRET)) || process.env.GITLAB_TOKEN || undefined;
   }
 
-  /** Reads PRs (or GitLab merge requests), reviews and issues for the raw trace, then writes the story from all of it. */
+  async function jiraToken(): Promise<string | undefined> {
+    return (await context.secrets.get(SECRETS.jiraToken)) || process.env.JIRA_TOKEN || undefined;
+  }
+
+  /** Jira from settings, or undefined when no Jira URL is set. The token only ever goes to that URL. */
+  async function jiraSettings(): Promise<{ url: string; email?: string; token?: string; projects: string[] } | undefined> {
+    const config = vscode.workspace.getConfiguration('codeArchaeologist');
+    const url = config.get<string>('jiraUrl')?.trim();
+    if (!url) return undefined;
+    const email = config.get<string>('jiraEmail')?.trim() || process.env.JIRA_EMAIL || undefined;
+    return { url, email, token: await jiraToken(), projects: parseProjectKeys(config.get<string>('jiraProjects')) };
+  }
+
+  /** Reads PRs (or GitLab merge requests), reviews, issues and Jira tickets for the raw trace, then writes the story from all of it. */
   async function explain(raw: Timeline, panel: ArchaeologistPanel): Promise<void> {
     pending?.abort();
     shown = { timeline: raw, raw, panel };
-    if ((!raw.github && !raw.gitlab) || raw.steps.length === 0) return tellStory(raw, raw, panel);
+    const jira = await jiraSettings();
+    if ((!raw.github && !raw.gitlab && !jira) || raw.steps.length === 0) return tellStory(raw, raw, panel);
     const host = raw.gitlab ? 'GitLab' : 'GitHub';
 
     const controller = new AbortController();
     pending = controller;
-    panel.post({ type: 'timeline', timeline: raw, ai: { status: 'reading', message: raw.gitlab ? 'Reading merge requests…' : 'Reading pull requests…' } });
-    let timeline: Timeline;
+    const reading = raw.gitlab ? 'Reading merge requests…' : raw.github ? 'Reading pull requests…' : 'Reading Jira tickets…';
+    panel.post({ type: 'timeline', timeline: raw, ai: { status: 'reading', message: reading } });
+    let timeline: Timeline = raw;
     try {
       const options = {
         cache: github,
         signal: controller.signal,
         onProgress: (message: string) => panel.post({ type: 'progress', message: `${message}…` }),
       };
-      timeline = raw.gitlab
-        ? await addGitLabContext(raw, { ...options, token: await gitlabToken(), gitlabUrl: vscode.workspace.getConfiguration('codeArchaeologist').get<string>('gitlabUrl') || undefined })
-        : await addGitHubContext(raw, { ...options, token: await githubToken() });
+      if (raw.gitlab) {
+        timeline = await addGitLabContext(raw, { ...options, token: await gitlabToken(), gitlabUrl: vscode.workspace.getConfiguration('codeArchaeologist').get<string>('gitlabUrl') || undefined });
+      } else if (raw.github) {
+        timeline = await addGitHubContext(raw, { ...options, token: await githubToken() });
+      }
+      // After the PRs, so keys in their titles and descriptions count too.
+      if (jira) timeline = await addJiraContext(timeline, { ...jira, signal: controller.signal, onProgress: options.onProgress });
     } catch (error) {
       if (controller.signal.aborted) return;
       throw error;
@@ -88,6 +110,8 @@ export function activate(context: vscode.ExtensionContext): void {
     if (controller.signal.aborted) return;
     const c = timeline.context;
     if (c) output.appendLine(`${host} for ${raw.file}: ${c.prs} PRs, ${c.reviews} comments, ${c.issues} issues${c.error ? `; ${c.error}` : ''}`);
+    const j = timeline.jira;
+    if (j) output.appendLine(`Jira for ${raw.file}: ${j.tickets} tickets${j.error ? `; ${j.error}` : ''}`);
     await tellStory(timeline, raw, panel);
   }
 
@@ -220,6 +244,15 @@ export function activate(context: vscode.ExtensionContext): void {
         try {
           await client.generate(prompt);
           return { ok: true, message: `Connected: ${client.model} answered in ${((Date.now() - started) / 1000).toFixed(1)}s.` };
+        } catch (error) {
+          return { ok: false, message: error instanceof Error ? error.message : String(error) };
+        }
+      },
+      async testJira(values, typedToken) {
+        if (!values.jiraUrl.trim()) return { ok: false, message: 'Set the Jira URL first.' };
+        try {
+          const message = await checkJira({ url: values.jiraUrl, email: values.jiraEmail.trim() || undefined, token: typedToken || (await jiraToken()) });
+          return { ok: true, message };
         } catch (error) {
           return { ok: false, message: error instanceof Error ? error.message : String(error) };
         }

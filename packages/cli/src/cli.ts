@@ -3,12 +3,14 @@ import { parseArgs } from 'node:util';
 import {
   addGitHubContext,
   addGitLabContext,
+  addJiraContext,
   DEFAULT_MODEL,
   GitHubCache,
   describeStory,
   describeTimeline,
   modelClient,
   parseHeaders,
+  parseProjectKeys,
   StoryCache,
   trace,
   TimelineCache,
@@ -27,6 +29,9 @@ Options:
                      are read when origin is on github.com (with GITHUB_TOKEN if set) or
                      on GitLab (with GITLAB_TOKEN, needed for private projects)
   --gitlab-url <url> Your self-hosted GitLab; GITLAB_TOKEN is sent only there and to gitlab.com
+  --jira-url <url>   Read Jira tickets named in commits and PRs, e.g. PAY-412 (or JIRA_URL).
+                     JIRA_TOKEN is sent only there; Jira Cloud also needs JIRA_EMAIL.
+                     JIRA_PROJECTS="PAY,CORE" limits which keys count
   --story            Ask an LLM for per-commit notes, a summary and a risk verdict
                      (Gemini by default, with GEMINI_API_KEY)
   --provider <name>  gemini (default) or openai, for any OpenAI-compatible API
@@ -52,6 +57,7 @@ async function main(argv: string[]): Promise<number> {
       'base-url': { type: 'string' },
       header: { type: 'string', multiple: true },
       'gitlab-url': { type: 'string' },
+      'jira-url': { type: 'string' },
       model: { type: 'string' },
       'cache-dir': { type: 'string' },
       help: { type: 'boolean', short: 'h', default: false },
@@ -103,6 +109,18 @@ async function main(argv: string[]): Promise<number> {
       ? await addGitLabContext(timeline, { ...options, token: process.env.GITLAB_TOKEN || undefined, gitlabUrl: values['gitlab-url'] ?? process.env.GITLAB_URL })
       : await addGitHubContext(timeline, { ...options, token: process.env.GITHUB_TOKEN || process.env.GH_TOKEN || undefined });
     if (timeline.context?.error && !values.json) console.error(`warning: ${timeline.context.error}`);
+  }
+
+  const jiraUrl = values['jira-url'] ?? process.env.JIRA_URL;
+  if (jiraUrl) {
+    timeline = await addJiraContext(timeline, {
+      url: jiraUrl,
+      email: process.env.JIRA_EMAIL || undefined,
+      token: process.env.JIRA_TOKEN || undefined,
+      projects: parseProjectKeys(process.env.JIRA_PROJECTS),
+      onProgress: progress,
+    });
+    if (timeline.jira?.error && !values.json) console.error(`warning: ${timeline.jira.error}`);
   }
 
   if (values.story) {

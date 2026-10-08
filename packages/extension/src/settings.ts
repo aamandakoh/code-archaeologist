@@ -2,7 +2,7 @@ import * as vscode from 'vscode';
 import { parseHeaders } from '@code-archaeologist/core';
 import type { FromSettings, SecretName, SecretState, SettingsValues, ToSettings } from './settingsMessages';
 
-/** The settings form: LLM provider, URL, model and key, and the GitHub and GitLab tokens. */
+/** The settings form: LLM provider, URL, model and key, the GitHub and GitLab tokens, and Jira. */
 export class SettingsPanel {
   private static current: SettingsPanel | undefined;
 
@@ -40,7 +40,11 @@ export class SettingsPanel {
     if (message.type === 'ready') return this.sendState();
     if (message.type === 'test') {
       const result = await this.host.test(message.values, message.apiKey, message.headers);
-      return this.post({ type: 'test-result', ...result });
+      return this.post({ type: 'test-result', target: 'llm', ...result });
+    }
+    if (message.type === 'test-jira') {
+      const result = await this.host.testJira(message.values, message.token);
+      return this.post({ type: 'test-result', target: 'jira', ...result });
     }
     const config = vscode.workspace.getConfiguration('codeArchaeologist');
     const target = vscode.ConfigurationTarget.Global;
@@ -50,6 +54,9 @@ export class SettingsPanel {
     await config.update('baseUrl', values.baseUrl.trim() || undefined, target);
     await config.update('model', values.model.trim() || undefined, target);
     await config.update('gitlabUrl', values.gitlabUrl.trim() || undefined, target);
+    await config.update('jiraUrl', values.jiraUrl.trim() || undefined, target);
+    await config.update('jiraEmail', values.jiraEmail.trim() || undefined, target);
+    await config.update('jiraProjects', values.jiraProjects.trim() || undefined, target);
     for (const [name, value] of Object.entries(message.secrets) as [SecretName, string | null][]) {
       if (value === null) await this.host.secrets.delete(SECRETS[name]);
       else if (value.trim()) await this.host.secrets.store(SECRETS[name], value.trim());
@@ -66,6 +73,9 @@ export class SettingsPanel {
       baseUrl: config.get<string>('baseUrl') ?? '',
       model: config.get<string>('model') ?? '',
       gitlabUrl: config.get<string>('gitlabUrl') ?? '',
+      jiraUrl: config.get<string>('jiraUrl') ?? '',
+      jiraEmail: config.get<string>('jiraEmail') ?? '',
+      jiraProjects: config.get<string>('jiraProjects') ?? '',
     };
     const where = async (name: SecretName, ...env: (string | undefined)[]) =>
       (await this.host.secrets.get(SECRETS[name])) ? 'saved' : env.some(Boolean) ? 'env' : 'none';
@@ -74,6 +84,7 @@ export class SettingsPanel {
       apiKey: await where('apiKey', values.provider === 'openai' ? e.OPENAI_API_KEY : e.GEMINI_API_KEY),
       githubToken: await where('githubToken', e.GITHUB_TOKEN),
       gitlabToken: await where('gitlabToken', e.GITLAB_TOKEN),
+      jiraToken: await where('jiraToken', e.JIRA_TOKEN),
       llmHeaders: await where('llmHeaders'),
     };
     const headerNames = Object.keys(parseHeaders((await this.host.secrets.get(SECRETS.llmHeaders)) ?? '').headers);
@@ -90,6 +101,8 @@ export type SettingsHost = {
   secrets: vscode.SecretStorage;
   /** Sends a tiny prompt with these settings and says whether the model answered. */
   test(values: SettingsValues, apiKey?: string, headers?: string): Promise<{ ok: boolean; message: string }>;
+  /** Asks Jira who the credentials belong to. */
+  testJira(values: SettingsValues, token?: string): Promise<{ ok: boolean; message: string }>;
   /** Called after a save, e.g. to rewrite the story on screen with the new settings. */
   saved(): void;
 };
@@ -99,6 +112,7 @@ export const SECRETS: Record<SecretName, string> = {
   apiKey: 'codeArchaeologist.geminiApiKey',
   githubToken: 'codeArchaeologist.githubToken',
   gitlabToken: 'codeArchaeologist.gitlabToken',
+  jiraToken: 'codeArchaeologist.jiraToken',
   llmHeaders: 'codeArchaeologist.llmHeaders',
 };
 

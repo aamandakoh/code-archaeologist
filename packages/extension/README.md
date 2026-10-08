@@ -8,26 +8,26 @@ editor with every commit that touched those lines, oldest first:
 - Dots are coloured by kind of change
   (feature, fix, revert, refactor, docs) with year labels, and the commits the verdict cites are
   ringed.
-- Each step says how long after the previous change it came, links to the commit and to the
-  file as it was at that commit, and keeps removed lines on screen as a diff (untick
-  **Keep removed lines visible** to hide them).
+- Each step says who made the change, when, and how long after the previous change it came, links
+  to the commit and to the file as it was at that commit, and keeps removed lines on screen as a
+  diff (untick **Keep removed lines visible** to hide them).
 
 Whitespace-only, formatting-only and license-header commits are skipped and listed separately.
 
-Under the file name: every pull request or merge request behind these commits, found from the
-commit message or, when the message names none, by asking GitHub or GitLab which one merged the
-commit. Then a one-sentence summary and a Low / Medium / High risk verdict with cited
+Under the file name: a one-sentence summary and a Low / Medium / High risk verdict with cited
 reasons (click one to jump to the commit it cites; the reasons about the commit on screen light
 up as you scrub; "Hide reasons" folds the card down to the verdict) and things to check before
 you change it.
 Each commit card starts with its links on one line: the commit, the pull request or merge request
-that merged it, and the file at that commit. Then the full commit message, and a short AI note with
-chips for the other evidence it cites (issues, review comments, other commits). Under the diff are
-the linked issues and review comments, read from GitHub or GitLab.
+that merged it (found from the commit message or, when the message names none, by asking GitHub or
+GitLab), its Jira tickets, and the file at that commit. Then a short AI note with chips for the other
+evidence it cites (issues, review comments, Jira tickets, other commits), and the diff. Under the
+diff, dropdowns hold the full commit message, the pull request's description, linked issues and
+comments, and each Jira ticket's type, status, description and comments.
 
 All of the settings below are also on one screen: run **Code Archaeologist: Open settings screen**
 (or the gear in the panel's title bar). It has one-click setups for Gemini, the free Gemini
-Flash-Lite and Mistral plans, OpenAI, OpenRouter, Ollama and LM Studio, a **Test connection** button, and fields for the GitHub and GitLab tokens.
+Flash-Lite and Mistral plans, OpenAI, OpenRouter, Ollama and LM Studio, a **Test connection** button, fields for the GitHub and GitLab tokens, and Jira.
 
 The story is written by Gemini by default. Run **Code Archaeologist: Set LLM API key** with a key
 from Google AI Studio, and pick the model with the `codeArchaeologist.model` setting (default
@@ -48,5 +48,11 @@ needs one for private projects and for comments). gitlab.com and hosts named lik
 set `codeArchaeologist.gitlabUrl` to its address. The token is sent only to gitlab.com and to the
 GitLab in that setting, so for a self-hosted GitLab set it even when its name has "gitlab" in it.
 
-The LLM API URL and provider and the GitLab URL are read from your user settings only, never from a
+Jira tickets named in commit messages and pull request or merge request titles and descriptions
+(like `PAY-412`) become evidence too. On the settings screen, set the Jira URL, and for Jira Cloud
+your Atlassian email with an API token, or for Data Center or Server a personal access token. The
+token is kept in secret storage and only ever sent to that Jira URL. Optional project keys limit
+which keys count; **Test connection** checks it all.
+
+The LLM API URL and provider, the GitLab URL and the Jira URL are read from your user settings only, never from a
 workspace's `.vscode/settings.json`, so a repository you open cannot send your keys elsewhere.

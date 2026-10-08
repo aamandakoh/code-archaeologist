@@ -5,7 +5,7 @@ import { mrFromMessage } from './gitlab.js';
 import type { StoryCache } from './cache.js';
 
 /** Bump when the prompt or the Story shape changes, so cached stories are regenerated. */
-export const STORY_VERSION = 4;
+export const STORY_VERSION = 5;
 
 /** Limits on what goes to the model. Roughly 4 characters per token, so about 30k tokens. */
 export const LIMITS = {
@@ -16,6 +16,9 @@ export const LIMITS = {
   reviewChars: 500,
   reviewsPerStep: 6,
   issueBodyChars: 400,
+  ticketBodyChars: 800,
+  ticketCommentChars: 400,
+  ticketCommentsPerStep: 4,
   /** Above this many commits, the middle ones are reduced to message subject plus PR title. */
   fullCommits: 25,
   /** How many of the oldest commits stay in full when the middle is reduced. */
@@ -25,10 +28,10 @@ export const LIMITS = {
 const SYSTEM = `You are Code Archaeologist. You explain how a piece of code evolved and whether it is safe to change, using only the evidence you are given.
 
 Rules:
-- Explain what changed and why, from the evidence only: the commit message, its pull request description, review comments, PR discussion and linked issues. If none of them gives a reason for a change, say "No reason recorded." and cite the commit. Never guess a motive.
+- Explain what changed and why, from the evidence only: the commit message, its pull request description, review comments, PR discussion, linked issues and Jira tickets. If none of them gives a reason for a change, say "No reason recorded." and cite the commit. Never guess a motive.
 - For a revert, look for the reason in the review comments, especially those marked as posted on the reverted PR, and state that reason in the revert's own note. If there is none, a revert whose message only names the reverted commit has no recorded reason.
-- When the reason comes from a review comment or an issue, say who raised it or what broke in plain words, and cite that review or issue id.
-- Every note and every verdict reason cites at least one id exactly as written in the evidence, such as "commit:b35fa73", "pr:49659", "review:b35fa73-2" or "issue:31462". Cite the PR, review or issue the claim rests on, not just the commit. Never invent ids.
+- When the reason comes from a review comment, an issue or a Jira ticket, say who raised it or what broke in plain words, and cite that review, issue or ticket id. A Jira ticket's description and comments often hold the requirement or the bug report behind a change.
+- Every note and every verdict reason cites at least one id exactly as written in the evidence, such as "commit:b35fa73", "pr:49659", "review:b35fa73-2", "issue:31462" or "jira:PAY-412". Cite the PR, review or issue the claim rests on, not just the commit. Never invent ids.
 - Write one note per commit, in the same order as the evidence, using its short hash in "commit". Commits marked [reduced] get a short note from their subject alone.
 - Notes are at most 2 sentences, plain words, no markdown. Ids go in "citations", never in the text: no "citations:" or id lists in a note or reason.
 - "summary" is one sentence on how these lines got to where they are today and what that means for someone about to change them. Do not just describe what the code does.
@@ -159,6 +162,14 @@ function renderFull(step: Step, limits: typeof LIMITS): string {
     out.push(`${verb} ${issueId(issue)}: ${issue.title}`);
     if (issue.body) out.push(`  ${oneLine(clip(issue.body, limits.issueBodyChars))}`);
   }
+  for (const ticket of step.tickets ?? []) {
+    const about = [ticket.type, ticket.status, ticket.reporter && `reported by ${ticket.reporter}`, ticket.date?.slice(0, 10)].filter(Boolean).join(', ');
+    out.push(`Jira ticket jira:${ticket.key}${about ? ` (${about})` : ''}: ${ticket.title}`);
+    if (ticket.body) out.push(`  Description: ${oneLine(clip(ticket.body, limits.ticketBodyChars))}`);
+    for (const comment of ticket.comments.slice(-limits.ticketCommentsPerStep)) {
+      out.push(`  Comment by ${comment.author}${comment.date ? ` (${comment.date.slice(0, 10)})` : ''}: ${oneLine(clip(comment.body.trim(), limits.ticketCommentChars))}`);
+    }
+  }
   out.push('Diff of the traced lines:', '```diff', trimDiff(step.diff, limits.diffLines), '```');
   return out.join('\n');
 }
@@ -167,7 +178,8 @@ function renderReduced(step: Step): string {
   const c = step.commit;
   const subject = c.message.split('\n')[0] ?? '';
   const pr = step.pr ? ` (PR pr:${step.pr.number}: ${step.pr.title})` : '';
-  return `\n## commit:${short(c.sha)} · ${c.date.slice(0, 10)} · ${c.author} [reduced]\n${subject}${pr}`;
+  const tickets = (step.tickets ?? []).map((t) => `\nJira ticket jira:${t.key}: ${t.title}`).join('');
+  return `\n## commit:${short(c.sha)} · ${c.date.slice(0, 10)} · ${c.author} [reduced]\n${subject}${pr}${tickets}`;
 }
 
 /** Ids the model may cite for one step. PR and issue numbers written in the message count too. */
@@ -188,6 +200,7 @@ function evidenceIds(step: Step, gitlab = false): string[] {
     if (review.on) ids.push(`pr:${review.on}`);
   });
   for (const issue of step.issues) ids.push(issueId(issue));
+  for (const ticket of step.tickets ?? []) ids.push(`jira:${ticket.key}`);
   return ids;
 }
 
@@ -238,12 +251,14 @@ export function parseStory(text: string, timeline: Timeline, prompt: StoryPrompt
     return shas.find((sha) => sha.startsWith(hex));
   };
   const normalize = (citation: string): string | undefined => {
-    const c = citation.trim().replace(/^#/, 'pr:');
+    const c = citation.trim().replace(/^#/, 'pr:').replace(/^([A-Z][A-Z\d_]*-\d+)$/, 'jira:$1');
     const [kind, ref = ''] = c.includes(':') ? [c.slice(0, c.indexOf(':')).toLowerCase(), c.slice(c.indexOf(':') + 1)] : ['commit', c];
     if (kind === 'commit') {
       const sha = fullSha(ref);
       return sha ? `commit:${short(sha)}` : undefined;
     }
+    // Jira keys are upper case; the model sometimes cites the bare key, e.g. "PAY-412".
+    if (kind === 'jira') return known.has(`jira:${ref.trim().toUpperCase()}`) ? `jira:${ref.trim().toUpperCase()}` : undefined;
     const n = ref.trim().replace(/^#/, '');
     const id = `${kind}:${n}`;
     if (known.has(id)) return id;
@@ -577,12 +592,13 @@ function prose(text: string, mr = false): string {
     // "Citations: [pr:3]" at the end, or a bare "(commit:ab12, review:9)" ending the text. An id
     // mid-sentence stays, as a readable reference.
     .replace(/\s*[([]\s*(?:citations?|sources?|cites?)\s*:[^)\]]*[)\]]/gi, '')
-    .replace(/\s*\b(?:citations?|sources?)\s*:\s*\[?\s*(?:(?:commit|pr|issue|review):[\w-]+[\s,;]*)+\]?\s*\.?\s*$/i, '')
-    .replace(/\s*[([]\s*(?:(?:commit|pr|issue|review):[\w-]+[\s,;]*)+[)\]](?=\s*[.!?]?\s*$)/gi, '')
+    .replace(/\s*\b(?:citations?|sources?)\s*:\s*\[?\s*(?:(?:commit|pr|issue|review|jira):[\w-]+[\s,;]*)+\]?\s*\.?\s*$/i, '')
+    .replace(/\s*[([]\s*(?:(?:commit|pr|issue|review|jira):[\w-]+[\s,;]*)+[)\]](?=\s*[.!?]?\s*$)/gi, '')
     .replace(/\s+([.,;])/g, '$1')
     .replace(/\bcommit:([0-9a-f]{7,40})\b/gi, (_, sha: string) => short(sha))
     .replace(/\bpr:(\d+)\b/gi, mr ? '!$1' : '#$1')
-    .replace(/\bissue:(\d+)\b/gi, '#$1');
+    .replace(/\bissue:(\d+)\b/gi, '#$1')
+    .replace(/\bjira:([A-Z][A-Z\d_]*-\d+)\b/gi, (_, key: string) => key.toUpperCase());
 }
 
 function short(sha: string): string {

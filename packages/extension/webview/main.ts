@@ -1,4 +1,4 @@
-import type { Step, Story, Timeline } from '@code-archaeologist/core/src/types.js';
+import type { JiraTicket, Review, Step, Story, Timeline } from '@code-archaeologist/core/src/types.js';
 import type { AiState, FromWebview, ToWebview } from '../src/messages';
 
 /** `showRemoved` is on unless turned off. */
@@ -133,7 +133,6 @@ function renderTimeline(t: Timeline) {
     { class: 'summary' },
     el('h1', { text: `${t.file}:${start}-${end}` }),
     el('p', { class: 'meta', text: `${plural(t.steps.length, 'commit')} · ${span}${t.context ? ` · ${plural(t.context.prs, forge(t).pr)} from ${forge(t).name}` : ''}` }),
-    renderPrList(t),
     noise,
   );
 
@@ -217,33 +216,6 @@ function renderTimeline(t: Timeline) {
   select(current);
 }
 
-/** Every PR or merge request behind the traced commits, whether or not a commit message names it. */
-function renderPrList(t: Timeline): HTMLElement | undefined {
-  const prs = new Map<number, { pr: NonNullable<Step['pr']>; commits: number[] }>();
-  t.steps.forEach((step, i) => {
-    if (!step.pr) return;
-    const entry = prs.get(step.pr.number) ?? { pr: step.pr, commits: [] };
-    entry.commits.push(i);
-    prs.set(step.pr.number, entry);
-  });
-  if (prs.size === 0) return undefined;
-  const { name, pr } = forge(t);
-  return el(
-    'details',
-    { class: 'pr-list' },
-    el('summary', { text: `All ${plural(prs.size, pr)}` }),
-    el(
-      'ul',
-      {},
-      ...[...prs.values()].map(({ pr: p, commits }) => {
-        const jump = el('button', { class: 'linklike', text: plural(commits.length, 'commit'), attrs: { title: 'Show the latest commit from it' } });
-        jump.addEventListener('click', () => select(commits.at(-1)!));
-        return el('li', {}, el('a', { attrs: { href: p.url, title: `Open on ${name}` } }, el('span', { class: 'chip', text: refLabel(t, 'pr', p.number) }), ` ${p.title}`), ' · ', jump);
-      }),
-    ),
-  );
-}
-
 /** One dot per commit under the slider, coloured by kind, with a year label where the year changes. */
 function renderTrack(t: Timeline): HTMLElement {
   const cited = citedSteps(t);
@@ -312,17 +284,18 @@ function renderStep(t: Timeline, step: Step, animate: boolean): HTMLElement {
   const gap = previous ? elapsed(previous.commit.date, commit.date) : 'first version';
 
   const fileUrl = fileAtCommit(t, step);
-  // Every link for the commit on one line: the commit, the PR or MR that merged it, the file then.
+  // Every link for the commit on one line: the commit, the PR or MR that merged it, its Jira tickets, the file then.
+  const tickets = step.tickets ?? [];
   const links = el(
     'p',
     { class: 'meta links' },
     commitLink(t, commit.sha),
     step.pr && ' · ',
     step.pr && el('a', { class: 'pr', text: `${refLabel(t, 'pr', step.pr.number)} ${step.pr.title}`, attrs: { href: step.pr.url, title: `Open the ${forge(t).pr}` } }),
+    ...tickets.flatMap((ticket) => [' · ', el('a', { class: 'ticket', text: ticket.key, attrs: { href: ticket.url, title: ticketTitle(ticket) } })]),
     fileUrl && ' · ',
     fileUrl && el('a', { text: 'file at this commit', attrs: { href: fileUrl } }),
   );
-  const who = el('p', { class: 'meta', text: `${commit.author} · ${shortDate(commit.date)}` });
 
   return el(
     'article',
@@ -332,14 +305,19 @@ function renderStep(t: Timeline, step: Step, animate: boolean): HTMLElement {
       { class: 'step-head' },
       el('span', { class: `kind kind-${kind.id}`, text: kind.label }),
       el('span', { class: 'gap', text: gap }),
+      el('span', { class: 'who', text: `· ${commit.author} · ${shortDate(commit.date)}` }),
     ),
     el('h3', { text: subject(commit.message) }),
     links,
-    who,
-    body && el('details', { class: 'body' }, el('summary', { text: 'Full commit message' }), el('pre', { text: body })),
     renderNote(t, step),
     renderCode(step, animate),
-    renderEvidence(t, step),
+    el(
+      'div',
+      { class: 'drops' },
+      body && el('details', { class: 'body' }, el('summary', { text: 'Full commit message' }), el('pre', { text: body })),
+      renderEvidence(t, step),
+      ...tickets.map(renderTicket),
+    ),
   );
 }
 
@@ -595,6 +573,7 @@ function evidenceSources(t: Timeline): string {
   const parts = [plural(c.prs, forge(t).pr)];
   if (c.reviews > 0) parts.push(`${c.reviews} review comment${c.reviews === 1 ? '' : 's'}`);
   if (c.issues > 0) parts.push(`${c.issues} linked issue${c.issues === 1 ? '' : 's'}`);
+  if (t.jira?.tickets) parts.push(plural(t.jira.tickets, 'Jira ticket'));
   return `commit messages, diffs, ${parts.join(', ')}`;
 }
 
@@ -625,52 +604,82 @@ function hostOf(url: string): string {
   }
 }
 
-/** The PR, linked issues and review discussion behind one commit. */
+/** "MR !31 description, 1 linked issue and 2 comments": the forge's dropdown, holding what the link line leaves out. */
 function renderEvidence(t: Timeline, step: Step): HTMLElement | undefined {
-  // The commit's own PR or MR is in the links line at the top of the card.
-  if (step.issues.length === 0 && step.reviews.length === 0) return undefined;
-  const links = el(
-    'p',
-    { class: 'evidence-links' },
-    ...step.issues.map((issue) =>
-      el(
-        'a',
-        { class: 'issue', attrs: { href: issue.url } },
-        el('span', { class: 'chip', text: `${issue.relation === 'reverts' ? 'reverts' : 'fixes'} ${refLabel(t, issue.kind, issue.number)}` }),
-        ` ${issue.title}`,
+  const description = step.pr?.body.trim();
+  if (!description && step.issues.length === 0 && step.reviews.length === 0) return undefined;
+  const { name } = forge(t);
+  const parts = [
+    description && 'description',
+    step.issues.length > 0 && plural(step.issues.length, 'linked issue'),
+    step.reviews.length > 0 && plural(step.reviews.length, 'comment'),
+  ].filter((x): x is string => Boolean(x));
+  const what = parts.length > 1 ? `${parts.slice(0, -1).join(', ')} and ${parts.at(-1)}` : parts[0]!;
+  const label = step.pr ? `${forge(t).pr === 'merge request' ? 'MR' : 'PR'} ${refLabel(t, 'pr', step.pr.number)} ${what}` : `${what[0]!.toUpperCase()}${what.slice(1)} from ${name}`;
+  const issues =
+    step.issues.length > 0 &&
+    el(
+      'p',
+      { class: 'evidence-links' },
+      ...step.issues.map((issue) =>
+        el(
+          'a',
+          { class: 'issue', attrs: { href: issue.url } },
+          el('span', { class: 'chip', text: `${issue.relation === 'reverts' ? 'reverts' : 'fixes'} ${refLabel(t, issue.kind, issue.number)}` }),
+          ` ${issue.title}`,
+        ),
       ),
-    ),
-  );
+    );
   // Open when the note rests on a comment, or the comments explain a revert.
   const note = t.story?.steps.find((n) => n.commit === step.commit.sha);
   const open = step.reviews.some((r) => r.on) || Boolean(note?.citations.some((c) => c.startsWith('review:')));
-  const comments =
+  return el(
+    'details',
+    { class: 'reviews', attrs: open ? { open: '' } : {} },
+    el('summary', { text: label }),
+    description && el('pre', { class: 'description', text: description }),
+    issues,
     step.reviews.length > 0 &&
-    el(
-      'details',
-      { class: 'reviews', attrs: open ? { open: '' } : {} },
-      el('summary', { text: `${plural(step.reviews.length, 'comment')} from ${forge(t).name}` }),
       el(
         'ol',
         {},
         ...step.reviews.map((review, i) =>
-          el(
-            'li',
-            { attrs: { id: `review-${step.commit.sha.slice(0, 7)}-${i + 1}` } },
-            el(
-              'p',
-              { class: 'meta' },
-              el('a', { text: review.author, attrs: { href: review.url } }),
-              review.date ? ` · ${shortDate(review.date)}` : '',
-              review.on ? ` · on reverted ${refLabel(t, 'pr', review.on)}` : '',
-              review.path ? ` · on ${review.path.split('/').pop()}` : '',
-            ),
-            el('blockquote', { text: review.body }),
-          ),
+          comment(review, `review-${step.commit.sha.slice(0, 7)}-${i + 1}`, [
+            review.on ? ` · on reverted ${refLabel(t, 'pr', review.on)}` : '',
+            review.path ? ` · on ${review.path.split('/').pop()}` : '',
+          ]),
         ),
       ),
-    );
-  return el('div', { class: 'evidence' }, links, comments);
+  );
+}
+
+/** "Jira PAY-412 description and 2 comments", holding the ticket's type, status, description and comments. */
+function renderTicket(ticket: JiraTicket): HTMLElement {
+  const parts = [ticket.body && 'description', ticket.comments.length > 0 && plural(ticket.comments.length, 'comment')].filter((x): x is string => Boolean(x));
+  const about = [ticket.type, ticket.status, ticket.reporter && `reported by ${ticket.reporter}`, ticket.date && shortDate(ticket.date)].filter(Boolean).join(' · ');
+  return el(
+    'details',
+    { class: 'reviews ticket', attrs: { 'data-ticket': ticket.key } },
+    el('summary', { text: `Jira ${ticket.key}${parts.length ? ` ${parts.join(' and ')}` : ''}` }),
+    el('p', { class: 'meta ticket-about' }, el('a', { text: ticket.title, attrs: { href: ticket.url } }), about ? ` · ${about}` : ''),
+    ticket.body && el('pre', { class: 'description', text: ticket.body }),
+    ticket.comments.length > 0 && el('ol', {}, ...ticket.comments.map((c) => comment(c))),
+  );
+}
+
+function comment(review: Review, id?: string, extra: string[] = []): HTMLElement {
+  return el(
+    'li',
+    id ? { attrs: { id } } : {},
+    el('p', { class: 'meta' }, el('a', { text: review.author, attrs: { href: review.url } }), review.date ? ` · ${shortDate(review.date)}` : '', ...extra),
+    el('blockquote', { text: review.body }),
+  );
+}
+
+/** "Invoice total off by 0.01 (Bug, Done)", for the ticket link's tooltip. */
+function ticketTitle(ticket: JiraTicket): string {
+  const about = [ticket.type, ticket.status].filter(Boolean).join(', ');
+  return `${ticket.title}${about ? ` (${about})` : ''}`;
 }
 
 /** Nothing without a story: the story section at the top already says why there isn't one. */
@@ -711,6 +720,7 @@ function citationLabel(t: Timeline, citation: string): string {
     const author = t.steps.find((s) => s.commit.sha.startsWith(sha ?? ''))?.reviews[Number(n) - 1]?.author;
     return author ? `${author}'s comment` : 'comment';
   }
+  if (kind === 'jira') return ref;
   return kind === 'pr' || kind === 'issue' ? refLabel(t, kind, ref) : ref;
 }
 
@@ -720,6 +730,7 @@ function citationUrl(t: Timeline, citation: string): string | undefined {
     const [sha, n] = ref.split('-');
     return t.steps.find((s) => s.commit.sha.startsWith(sha ?? ''))?.reviews[Number(n) - 1]?.url;
   }
+  if (kind === 'jira') return t.steps.flatMap((s) => s.tickets ?? []).find((ticket) => ticket.key === ref)?.url;
   const repo = forge(t).web;
   if (!repo) return undefined;
   const sep = t.gitlab ? '/-' : '';
@@ -739,7 +750,9 @@ function stepForCitations(t: Timeline, citations: string[]): number | undefined 
     const index = t.steps.findIndex((s) =>
       kind === 'commit' || kind === 'review'
         ? s.commit.sha.startsWith(ref.split('-')[0] ?? ref)
-        : (kind === 'pr' && s.pr?.number === Number(ref)) ||
+        : kind === 'jira'
+          ? Boolean(s.tickets?.some((ticket) => ticket.key === ref))
+          : (kind === 'pr' && s.pr?.number === Number(ref)) ||
           new RegExp(`${kind === 'pr' ? forge(t).sign : '#'}${ref}\\b`).test(s.commit.message) ||
           s.issues.some((i) => i.number === Number(ref) && (!t.gitlab || (i.kind ?? 'issue') === kind)),
     );

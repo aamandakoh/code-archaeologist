@@ -54,10 +54,11 @@ window.addEventListener('message', (event: MessageEvent<ToSettings>) => {
     render();
     flash('Saved.');
   } else {
-    const result = document.getElementById('test-result')!;
+    const id = message.target === 'jira' ? 'test-jira' : 'test';
+    const result = document.getElementById(`${id}-result`)!;
     result.className = message.ok ? 'result ok' : 'result failed';
     result.textContent = message.message;
-    (document.getElementById('test') as HTMLButtonElement).disabled = false;
+    (document.getElementById(id) as HTMLButtonElement).disabled = false;
   }
 });
 vscode.postMessage({ type: 'ready' });
@@ -157,6 +158,29 @@ function render(): void {
         hint('Your self-hosted GitLab. The token is only sent to gitlab.com and this address, so set it for any other GitLab.'),
       ),
       secretField('gitlabToken', 'Token', 'GITLAB_TOKEN', 'On GitLab, open Personal access tokens, click Generate legacy token and tick read_api. Needed for private projects and for comments.'),
+    ),
+
+    el(
+      'section',
+      {},
+      el('h2', { text: 'Jira' }),
+      el('p', { class: 'muted', text: 'Tickets named in commits and merge requests, like PAY-412. Their summary, status, description and comments become evidence for the notes and the verdict.' }),
+      field('Jira URL', input('jiraUrl', v.jiraUrl, 'https://yourcompany.atlassian.net', (value) => (v.jiraUrl = value)), hint('Credentials are only ever sent to this address.')),
+      field('Email', input('jiraEmail', v.jiraEmail, 'you@company.com', (value) => (v.jiraEmail = value)), hint('Jira Cloud only. Leave empty for Jira Data Center or Server.')),
+      secretField('jiraToken', 'API token', 'JIRA_TOKEN', 'Jira Cloud: an API token from id.atlassian.com/manage-profile/security/api-tokens. Data Center or Server: a personal access token.'),
+      field('Project keys', input('jiraProjects', v.jiraProjects, 'PAY, CORE (optional)', (value) => (v.jiraProjects = value)), hint('Only match these keys. Leave empty to match any ABC-123 pattern.')),
+      el(
+        'div',
+        { class: 'row' },
+        button('Test connection', 'secondary', () => {
+          const result = document.getElementById('test-jira-result')!;
+          result.className = 'result';
+          result.textContent = 'Asking Jira…';
+          (document.getElementById('test-jira') as HTMLButtonElement).disabled = true;
+          vscode.postMessage({ type: 'test-jira', values: v, ...(typed.jiraToken && { token: typed.jiraToken }) });
+        }, 'test-jira'),
+        el('span', { class: 'result', attrs: { id: 'test-jira-result', role: 'status' } }),
+      ),
     ),
 
     el(

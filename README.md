@@ -13,26 +13,33 @@ cited "safe to change?" verdict near the top.
 - [Layout](#layout)
 - [Develop](#develop)
 - [CLI](#cli)
-- [GitHub context](#github-context)
+- [Context](#context)
+  - [GitHub](#github)
   - [GitLab](#gitlab)
+  - [Jira](#jira)
 - [AI story](#ai-story)
 - [Demo snippet](#demo-snippet)
 
 ## Screenshots
 
 The panel on Angular's URL sanitizer (`url_sanitizer.ts` lines 38-48, the [demo snippet](#demo-snippet)),
-stepped back to the 2023 commit that switched it to blocking only `javascript:` URLs. The file and
-commit count stay pinned at the top, the verdict reason that cites this commit is highlighted, and
-removed lines stay visible in the diff. This run had no GitHub token, so the story is written from
-commit messages and diffs alone; with one, the commit's pull request sits on the links line next
-to the commit, and every PR behind these commits is listed under the header.
+on the latest commit: the 2026 revert of a stricter `data:` and `vbscript:` check. The file and
+commit count stay pinned at the top, with the verdict and its cited reasons under them. The commit
+card puts the author and date beside how long after the previous change it came, links the
+commit, its pull request and the file at that commit on one line, then the AI note and the diff
+with removed lines kept visible. Below the diff, dropdowns hold the full commit message, the pull
+request's description, linked issues and comments, and each Jira ticket's description and comments.
+Here the PR dropdown is open because the note rests on the reviewer's comment on the reverted PR.
+The GitHub evidence comes from the test fixture in `packages/core/test/fixtures/github.ts`, abridged
+from the public pull requests.
 
-![The Code Archaeologist panel: pinned file header, a high-risk verdict with cited reasons, the commit timeline, and the 2023 commit's links, note and code](docs/panel.png)
+![The Code Archaeologist panel: pinned file header, a high-risk verdict with cited reasons, the commit timeline, and the revert commit's author and date, links, note, diff and an open pull request dropdown](docs/panel.png)
 
-The settings screen (**Code Archaeologist: Open settings screen**), with the default Gemini provider and a
-saved key and GitHub token. Keys, tokens and extra headers are never shown.
+The settings screen (**Code Archaeologist: Open settings screen**), with the default Gemini provider, a
+saved key and GitHub token, and Jira Cloud set up with **Test connection** passing. Keys, tokens and
+extra headers are never shown.
 
-![The Code Archaeologist settings screen: quick setup presets, AI model, extra request headers, GitHub and GitLab sections](docs/settings.png)
+![The Code Archaeologist settings screen: quick setup presets, AI model, extra request headers, and the GitHub, GitLab and Jira sections](docs/settings.png)
 
 ## Install
 
@@ -59,6 +66,9 @@ are kept in VS Code secret storage, and **Test connection** checks them before y
 | GitHub token | **Should**, for GitHub repos | Lets the story cite PRs, review comments and linked issues. Without one GitHub allows only 60 requests an hour, and private repos can't be read. A fine-grained token with read access to pull requests and issues is enough. Also read from `GITHUB_TOKEN`. |
 | GitLab token | **Should**, for GitLab repos | The same for merge requests, comments and issues. On GitLab, open **Personal access tokens**, click **Generate legacy token** and tick the `read_api` scope. Also read from `GITLAB_TOKEN`. |
 | GitLab URL | **Must**, for self-hosted GitLab | Your GitLab's address, e.g. `https://gitlab.example.com`. The GitLab token is only sent to gitlab.com and this address. When a trace holds the token back, the panel has a button that sets this for you. |
+| Jira URL | **Must**, to use Jira | Your Jira, e.g. `https://yourcompany.atlassian.net`. Ticket keys like `PAY-412` in commit messages and PR or MR titles and descriptions are read from here. |
+| Jira email and API token | **Should**, for private Jira | Jira Cloud: your Atlassian email plus an API token from [id.atlassian.com](https://id.atlassian.com/manage-profile/security/api-tokens). Data Center or Server: leave the email empty and use a personal access token. Only ever sent to the Jira URL. Also read from `JIRA_EMAIL` and `JIRA_TOKEN`. |
+| Jira project keys | Optional | Only match these keys, e.g. `PAY, CORE`. Empty matches any `ABC-123` except a few that are rarely tickets, like `UTF-8`. |
 
 ## Status
 
@@ -67,7 +77,7 @@ are kept in VS Code secret storage, and **Test connection** checks them before y
 | M0 | Workspaces, build, tests, extension skeleton | Done |
 | M1 | `git log -L` trace, noise filter, CLI, raw history panel | Done |
 | M2 | AI notes, summary and risk verdict (Gemini) | Done |
-| M3 | GitHub PRs, review comments and issues (and GitLab merge requests) | Done |
+| M3 | GitHub PRs, review comments and issues (and GitLab merge requests, Jira tickets) | Done |
 | M4 | Time-lapse UI polish | Done |
 | M5 | Demo recording | Next |
 
@@ -106,18 +116,26 @@ run by hand from the Actions tab, and skips versions that already have a release
 
 ```sh
 npm run build
-node packages/cli/dist/cli.js trace <file> <start> <end> [--json] [--snapshots] [--keep-noise] [--no-github] [--gitlab-url <url>] [--story] [--provider gemini|openai] [--base-url <url>] [--header "Name: value"] [--model <id>] [--cache-dir <dir>]
+node packages/cli/dist/cli.js trace <file> <start> <end> [--json] [--snapshots] [--keep-noise] [--no-github] [--gitlab-url <url>] [--jira-url <url>] [--story] [--provider gemini|openai] [--base-url <url>] [--header "Name: value"] [--model <id>] [--cache-dir <dir>]
 ```
 
 Lines are 1-based and inclusive, matched against HEAD. `--story` asks Gemini for the summary,
 per-commit notes and verdict and needs `GEMINI_API_KEY`. When `origin` is on github.com, each
 commit's pull request, review comments and linked issues are read too, with `GITHUB_TOKEN` if set
-(`--no-github` skips this). With `--cache-dir`, a rerun of the same lines at the same HEAD reuses
+(`--no-github` skips this). `--jira-url` (or `JIRA_URL`) reads the Jira tickets they name, with
+`JIRA_EMAIL` and `JIRA_TOKEN`. With `--cache-dir`, a rerun of the same lines at the same HEAD reuses
 the trace, the GitHub responses and the story, so recording a demo never waits on the network.
 
-## GitHub context
+## Context
 
-`packages/core/src/github.ts` adds the "why" that commit messages leave out:
+Commit messages rarely say why. Code Archaeologist reads the "why" from where teams write it down:
+pull requests and reviews on GitHub, merge requests on GitLab, and tickets in Jira. All of it goes
+into the prompt with ids the story must cite, and the commit card links to it and folds the text
+into dropdowns under the diff.
+
+### GitHub
+
+`packages/core/src/github.ts` reads, for each commit:
 
 - **Pull request:** from the message when the merge tool wrote it (`(#123)` after the subject,
   Angular's `PR Close #123`, a merge commit), else GitHub's "pull requests for a commit"
@@ -128,8 +146,9 @@ the trace, the GitHub responses and the story, so recording a demo never waits o
   timeline. The comments on the reverted PR that mention the revert are attached to the revert,
   because that is usually where the reason is.
 
-All of it goes into the prompt with citable ids (`pr:67692`, `review:fc9b2d6-1`, `issue:31462`),
-and the panel shows the PR, issues and comments under each commit. Each PR costs four requests,
+All of it goes into the prompt with citable ids (`pr:67692`, `review:fc9b2d6-1`, `issue:31462`).
+The commit card links the PR on its links line, and its description, linked issues and comments
+sit in a dropdown under the diff. Each PR costs four requests,
 so the 18-commit demo trace makes about 60 the first time and none after that (responses are
 cached for a week).
 
@@ -153,19 +172,37 @@ in `codeArchaeologist.gitlabUrl`, so a self-hosted GitLab needs that setting eve
 has "gitlab" in it. Until it is set, the panel says the token was held back, with a
 **Use my token on** button that sets it to that host.
 
+### Jira
+
+`packages/core/src/jira.ts` finds Jira keys like `PAY-412` in each commit message and in the
+title and description of its pull request or merge request, then reads each ticket once from
+the Jira REST API (`/rest/api/2/issue/<key>`): its summary, type, status, reporter, description
+and comments, bots left out. Tickets go into the prompt as `jira:PAY-412`, so a note can say
+"rounds per line, as the ticket's acceptance criteria say" and cite it. On the commit card the key
+links to the ticket, its title on hover, and a dropdown under the diff holds the description and
+comments.
+
+Set the Jira URL on the settings screen (`codeArchaeologist.jiraUrl`, CLI: `--jira-url` or
+`JIRA_URL`). Jira Cloud takes your Atlassian email (`codeArchaeologist.jiraEmail`, `JIRA_EMAIL`)
+with an API token; Jira Data Center and Server take a personal access token alone. The token is
+kept in secret storage (or `JIRA_TOKEN`) and only ever sent to the Jira URL. Without one, only
+public tickets can be read. Keys like `UTF-8` or `SHA-256` are ignored; to match only your teams'
+projects, set `codeArchaeologist.jiraProjects` (`JIRA_PROJECTS`) to e.g. `PAY, CORE`.
+**Test connection** checks the URL and credentials and says who Jira takes you for.
+
 ## AI story
 
 One Gemini call per trace (`packages/core/src/story.ts`), default model `gemini-3.5-flash` on
 Google AI Studio's free tier:
 
 - **Input:** the lines today, then per commit its id, date, author, message, its PR's title and
-  description, up to 6 review comments, linked issues and the diff of the traced lines (trimmed
+  description, up to 6 review comments, linked issues, Jira tickets with their last 4 comments and the diff of the traced lines (trimmed
   to 60 lines). Above 25 commits, or about 30k tokens, middle commits are
   sent as their subject line only.
 - **Output:** JSON with a one-sentence summary, a note per commit and a low/medium/high verdict
   with 3 to 5 reasons and things to check, validated with zod.
 - **Citations:** every note and reason must cite ids from the input (`commit:b35fa73`,
-  `pr:49659`). Citations that match nothing are dropped, and a claim left with none is shown as
+  `pr:49659`, `jira:PAY-412`). Citations that match nothing are dropped, and a claim left with none is shown as
   **unverified**. When the evidence gives no reason, the note says "No reason recorded."
 
 In VS Code, **Code Archaeologist: Open settings screen** shows all of this as a form, with presets and

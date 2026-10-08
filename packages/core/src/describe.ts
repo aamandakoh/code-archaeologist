@@ -25,6 +25,9 @@ export function describeTimeline(timeline: Timeline, options: { snapshots?: bool
       const ref = issue.kind === 'pr' && timeline.gitlab ? `!${issue.number}` : `#${issue.number}`;
       out.push(`    ${issue.relation === 'reverts' ? 'reverts' : 'fixes'} ${ref}: ${issue.title}`);
     }
+    for (const ticket of step.tickets ?? []) {
+      out.push(`    Jira ${ticket.key}: ${ticket.title}${ticket.status ? ` (${ticket.status})` : ''}`);
+    }
     const note = notes.get(step.commit.sha);
     if (note) out.push(`    > ${note.note} ${cite(note)}`);
     if (options.snapshots) {

@@ -156,8 +156,16 @@ summary { cursor: pointer; color: var(--muted); }
 .step.entering { animation: step-in 0.35s ease-out; }
 @keyframes step-in { from { opacity: 0.35; transform: translateY(4px); } to { opacity: 1; transform: none; } }
 .step-head { display: flex; align-items: center; gap: 8px; margin-bottom: 6px; }
-.gap { color: var(--muted); font-size: 0.85em; }
-.step .body pre { white-space: pre-wrap; color: var(--muted); margin-top: 4px; }
+.gap, .step-head .who { color: var(--muted); font-size: 0.85em; }
+.step-head .gap + .who { margin-left: -4px; }
+/* The commit message, the PR or MR and each Jira ticket, folded under the code. */
+.drops { margin-top: 10px; }
+.drops > details { border-top: 1px solid var(--border); padding: 6px 0; }
+.drops > details:last-child { padding-bottom: 0; }
+.drops pre { white-space: pre-wrap; color: var(--muted); margin: 6px 0 4px; }
+.drops pre.description { font-family: inherit; font-size: inherit; }
+.drops .evidence-links { margin: 6px 0 4px; }
+.drops .ticket-about { margin: 6px 0 2px; }
 .note { margin: 8px 0; padding: 6px 10px; border-left: 3px solid var(--vscode-textLink-foreground); background: var(--vscode-textBlockQuote-background, transparent); }
 .note.pending { border-left-color: var(--border); font-style: italic; }
 
@@ -210,7 +218,6 @@ summary { cursor: pointer; color: var(--muted); }
 .history .date, .history .churn { color: inherit; opacity: 0.75; font-variant-numeric: tabular-nums; }
 .history .subject { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 
-.evidence { margin: 6px 0 10px; }
 .evidence-links { margin: 0 0 4px; display: flex; flex-direction: column; gap: 2px; }
 .evidence-links .chip { margin-right: 2px; }
 .reviews ol { list-style: none; margin: 6px 0 0; padding: 0; }
@@ -227,11 +234,6 @@ summary { cursor: pointer; color: var(--muted); }
 .history li.current .kind { color: inherit; border-color: currentColor; }
 .chip.review { font-family: inherit; }
 
-.pr-list { margin-top: 4px; }
-.pr-list summary { cursor: pointer; color: var(--muted); }
-.pr-list ul { margin: 4px 0 0; padding-left: 18px; }
-.pr-list li { margin: 2px 0; }
-.linklike { padding: 0; border: none; background: none; cursor: pointer; color: var(--vscode-textLink-foreground); font: inherit; }
 
 /* The file, range and counts stay in view while the verdict and history scroll under them. */
 header.summary {
@@ -240,4 +242,4 @@ header.summary {
   background: var(--vscode-editor-background);
   border-bottom: 1px solid var(--border);
 }
-header.summary .pr-list ul, header.summary .noise ul { max-height: 30vh; overflow-y: auto; }
+header.summary .noise ul { max-height: 30vh; overflow-y: auto; }

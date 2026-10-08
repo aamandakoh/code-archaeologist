@@ -20,6 +20,8 @@ export type Timeline = {
   warnings: string[];
   /** PRs, reviews and issues found on GitHub (milestone 3). Absent when not looked up. */
   context?: GitHubContext;
+  /** What was read from Jira. Absent when no Jira URL is set. */
+  jira?: JiraContext;
   /** AI output (milestone 2). Absent when no key is configured. */
   story?: Story;
 };
@@ -53,6 +55,38 @@ export type Step = {
   reviews: Review[];
   /** Issues and pull requests the commit or its PR names as fixed, closed or reverted. */
   issues: LinkedIssue[];
+  /** Jira tickets the commit message or its PR names, e.g. "PAY-412". Absent when Jira was not read. */
+  tickets?: JiraTicket[];
+};
+
+export type JiraTicket = {
+  /** "PAY-412". Cited as "jira:PAY-412". */
+  key: string;
+  /** The ticket's summary. */
+  title: string;
+  url: string;
+  /** "Bug", "Story", "Task". */
+  type?: string;
+  /** "Done", "In Progress". */
+  status?: string;
+  reporter?: string;
+  /** ISO 8601, when it was created. */
+  date?: string;
+  /** Description as plain text, trimmed. */
+  body?: string;
+  /** Oldest first. */
+  comments: Review[];
+};
+
+/** What was read from Jira for a timeline. */
+export type JiraContext = {
+  /** The Jira site, as normalised from settings. */
+  url: string;
+  /** Whether credentials were sent. */
+  token: boolean;
+  tickets: number;
+  /** Set when some or all tickets could not be read. The timeline is still usable. */
+  error?: string;
 };
 
 export type Review = {
@@ -119,7 +153,7 @@ export type Story = {
 };
 
 /**
- * Citations look like "commit:b35fa73", "pr:49659", "issue:123" or "review:b35fa73-1".
+ * Citations look like "commit:b35fa73", "pr:49659", "issue:123", "review:b35fa73-1" or "jira:PAY-412".
  * `flagged` means none of the model's citations matched the evidence, so the claim is unverified.
  */
 export type Citation = string;

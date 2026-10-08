@@ -2,7 +2,7 @@
   "name": "code-archaeologist",
   "displayName": "Code Archaeologist",
   "description": "Select code and see how it evolved commit by commit, and why.",
-  "version": "0.10.2",
+  "version": "0.11.0",
   "icon": "media/icon.png",
   "private": true,
   "publisher": "code-archaeologist",
@@ -105,6 +105,27 @@
           "scope": "application",
           "default": "",
           "markdownDescription": "Your self-hosted GitLab, e.g. `https://gitlab.example.com`. The GitLab token is sent only to gitlab.com and to this address, so set it for any other GitLab, even one with \"gitlab\" in its name. Remotes on a host named like `gitlab.example.com` are found without it, but read without your token. The token is set by **Code Archaeologist: Set GitLab token** (or `GITLAB_TOKEN`) and needs the `read_api` scope: on GitLab, open **Personal access tokens** and click **Generate legacy token**."
+        },
+        "codeArchaeologist.jiraUrl": {
+          "type": "string",
+          "order": 4,
+          "scope": "application",
+          "default": "",
+          "markdownDescription": "Your Jira, e.g. `https://yourcompany.atlassian.net`. Tickets named in commit messages and merge request titles and descriptions (like `PAY-412`) are read from here and used as evidence. The Jira token is only ever sent to this address. Easier: [open the Code Archaeologist settings screen](command:codeArchaeologist.openSettings)."
+        },
+        "codeArchaeologist.jiraEmail": {
+          "type": "string",
+          "order": 5,
+          "scope": "application",
+          "default": "",
+          "markdownDescription": "Jira Cloud only: the Atlassian account email that goes with your API token. Leave empty for Jira Data Center or Server, which take a personal access token alone."
+        },
+        "codeArchaeologist.jiraProjects": {
+          "type": "string",
+          "order": 6,
+          "scope": "application",
+          "default": "",
+          "markdownDescription": "Jira project keys to match, comma-separated, e.g. `PAY, CORE`. Empty matches any `ABC-123` pattern except a few common non-tickets like `UTF-8`."
         },
         "codeArchaeologist.model": {
           "type": "string",
