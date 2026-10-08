@@ -11,7 +11,7 @@ cited "safe to change?" verdict pinned at the top.
 | M0 | Workspaces, build, tests, extension skeleton | Done |
 | M1 | `git log -L` trace, noise filter, CLI, raw history panel | Done |
 | M2 | AI notes, summary and risk verdict (Gemini) | Done |
-| M3 | GitHub PRs, review comments and issues | Done |
+| M3 | GitHub PRs, review comments and issues (and GitLab merge requests) | Done |
 | M4 | Time-lapse UI polish | Done |
 | M5 | Demo recording | Next |
 
@@ -46,7 +46,7 @@ Install it in your normal VS Code instead: `npm run package -w packages/extensio
 
 ```sh
 npm run build
-node packages/cli/dist/cli.js trace <file> <start> <end> [--json] [--snapshots] [--keep-noise] [--no-github] [--story] [--provider gemini|openai] [--base-url <url>] [--model <id>] [--cache-dir <dir>]
+node packages/cli/dist/cli.js trace <file> <start> <end> [--json] [--snapshots] [--keep-noise] [--no-github] [--gitlab-url <url>] [--story] [--provider gemini|openai] [--base-url <url>] [--model <id>] [--cache-dir <dir>]
 ```
 
 Lines are 1-based and inclusive, matched against HEAD. `--story` asks Gemini for the summary,
@@ -77,6 +77,18 @@ Without a token GitHub allows 60 requests an hour, about one trace. Use a fine-g
 to public repositories: **Code Archaeologist: Set GitHub token** in VS Code (kept in secret
 storage), or `GITHUB_TOKEN` for the CLI. If GitHub fails (rate limit, bad token), the panel says
 so and the story is written from what was found.
+
+### GitLab
+
+When `origin` is on GitLab, `packages/core/src/gitlab.ts` reads the same things from the GitLab
+API instead: each commit's merge request (from "See merge request group/project!12" in a merge
+commit, else GitLab's "merge requests for a commit"), its comments with line comments on the
+traced file first, the issues it closes ("Closes #7") and the merge request a revert undid.
+Merge requests show as `!12`. Remotes on gitlab.com or a host with "gitlab" in its name are found
+on their own; for another self-hosted host set `codeArchaeologist.gitlabUrl` (CLI:
+`--gitlab-url` or `GITLAB_URL`). Private projects, and comments even on public gitlab.com
+projects, need a personal access token with `read_api`: **Code Archaeologist: Set GitLab token**
+in VS Code, or `GITLAB_TOKEN` for the CLI.
 
 ## AI story
 

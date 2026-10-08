@@ -19,7 +19,7 @@ up as you scrub; "Hide reasons" folds the card down to the verdict) and things t
 you change it.
 Each commit gets a short AI note with chips linking to the commits, PRs, review comments and
 issues it cites. Under it are the commit's pull request, linked issues and review comments, read
-from GitHub.
+from GitHub or GitLab.
 
 The story is written by Gemini by default. Run **Code Archaeologist: Set LLM API key** with a key
 from Google AI Studio, and pick the model with the `codeArchaeologist.model` setting (default
@@ -32,3 +32,9 @@ For example `http://localhost:11434/v1` with `llama3.1` runs on a local Ollama w
 
 GitHub context needs no setup for a few traces an hour. For more, run **Code Archaeologist: Set
 GitHub token** with a fine-grained token that has read-only access to public repositories.
+
+Code on GitLab works the same way, with merge requests in place of pull requests. Run **Code
+Archaeologist: Set GitLab token** with a personal access token that has the `read_api` scope (GitLab
+needs one for private projects and for comments). gitlab.com and hosts named like
+`gitlab.example.com` are recognised from the `origin` remote; for any other self-hosted GitLab,
+set `codeArchaeologist.gitlabUrl` to its address.

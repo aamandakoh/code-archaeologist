@@ -2,6 +2,7 @@ import path from 'node:path';
 import { parseArgs } from 'node:util';
 import {
   addGitHubContext,
+  addGitLabContext,
   DEFAULT_MODEL,
   GitHubCache,
   describeStory,
@@ -21,8 +22,10 @@ Options:
   --json             Print the Timeline as JSON
   --snapshots        Show the traced lines at each commit (text output only)
   --keep-noise       Keep whitespace, formatting and license-only commits
-  --no-github        Skip pull requests, reviews and issues from GitHub. They are read
-                     when origin is on github.com, with GITHUB_TOKEN if set
+  --no-github        Skip pull requests, reviews and issues from GitHub or GitLab. They
+                     are read when origin is on github.com (with GITHUB_TOKEN if set) or
+                     on GitLab (with GITLAB_TOKEN, needed for private projects)
+  --gitlab-url <url> A self-hosted GitLab whose host name has no "gitlab" in it
   --story            Ask an LLM for per-commit notes, a summary and a risk verdict
                      (Gemini by default, with GEMINI_API_KEY)
   --provider <name>  gemini (default) or openai, for any OpenAI-compatible API
@@ -45,6 +48,7 @@ async function main(argv: string[]): Promise<number> {
       story: { type: 'boolean', default: false },
       provider: { type: 'string' },
       'base-url': { type: 'string' },
+      'gitlab-url': { type: 'string' },
       model: { type: 'string' },
       'cache-dir': { type: 'string' },
       help: { type: 'boolean', short: 'h', default: false },
@@ -86,15 +90,15 @@ async function main(argv: string[]): Promise<number> {
     end,
     keepNoise: values['keep-noise'],
     cache: cacheDir ? new TimelineCache(path.join(cacheDir, 'timelines')) : undefined,
+    gitlabUrl: values['gitlab-url'] ?? process.env.GITLAB_URL,
     onProgress: progress,
   });
 
-  if (!values['no-github'] && timeline.github) {
-    timeline = await addGitHubContext(timeline, {
-      token: process.env.GITHUB_TOKEN || process.env.GH_TOKEN || undefined,
-      cache: cacheDir ? new GitHubCache(path.join(cacheDir, 'github')) : undefined,
-      onProgress: progress,
-    });
+  if (!values['no-github'] && (timeline.github || timeline.gitlab)) {
+    const options = { cache: cacheDir ? new GitHubCache(path.join(cacheDir, 'github')) : undefined, onProgress: progress };
+    timeline = timeline.gitlab
+      ? await addGitLabContext(timeline, { ...options, token: process.env.GITLAB_TOKEN || undefined })
+      : await addGitHubContext(timeline, { ...options, token: process.env.GITHUB_TOKEN || process.env.GH_TOKEN || undefined });
     if (timeline.context?.error && !values.json) console.error(`warning: ${timeline.context.error}`);
   }
 

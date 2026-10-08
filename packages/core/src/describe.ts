@@ -20,9 +20,10 @@ export function describeTimeline(timeline: Timeline, options: { snapshots?: bool
     out.push(`${String(index + 1).padStart(2)}. ${step.commit.sha.slice(0, 7)} ${step.commit.date.slice(0, 10)} ${step.commit.author}`);
     out.push(`    ${subject}`);
     out.push(`    +${step.addedLines.length} -${step.removedLines.length} lines, starts at line ${step.startLine}`);
-    if (step.pr) out.push(`    PR #${step.pr.number}: ${step.pr.title}${step.reviews.length ? ` (${step.reviews.length} comments)` : ''}`);
+    if (step.pr) out.push(`    ${timeline.gitlab ? `MR !${step.pr.number}` : `PR #${step.pr.number}`}: ${step.pr.title}${step.reviews.length ? ` (${step.reviews.length} comments)` : ''}`);
     for (const issue of step.issues) {
-      out.push(`    ${issue.relation === 'reverts' ? 'reverts' : 'fixes'} #${issue.number}: ${issue.title}`);
+      const ref = issue.kind === 'pr' && timeline.gitlab ? `!${issue.number}` : `#${issue.number}`;
+      out.push(`    ${issue.relation === 'reverts' ? 'reverts' : 'fixes'} ${ref}: ${issue.title}`);
     }
     const note = notes.get(step.commit.sha);
     if (note) out.push(`    > ${note.note} ${cite(note)}`);
@@ -58,7 +59,10 @@ export function describeStory(timeline: Timeline, story: Story): string {
 
 function describeContext(timeline: Timeline): string {
   const c = timeline.context!;
-  const found = `GitHub: ${c.prs} pull requests, ${c.reviews} review comments, ${c.issues} linked issues${c.token ? '' : ' (no token)'}`;
+  const found =
+    c.source === 'gitlab'
+      ? `GitLab: ${c.prs} merge requests, ${c.reviews} comments, ${c.issues} linked issues${c.token ? '' : ' (no token)'}`
+      : `GitHub: ${c.prs} pull requests, ${c.reviews} review comments, ${c.issues} linked issues${c.token ? '' : ' (no token)'}`;
   return c.error ? `${found}. ${c.error}` : found;
 }
 

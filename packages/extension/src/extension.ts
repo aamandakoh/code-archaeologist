@@ -1,6 +1,7 @@
 import * as vscode from 'vscode';
 import {
   addGitHubContext,
+  addGitLabContext,
   GitHubCache,
   modelClient,
   type Provider,
@@ -15,6 +16,7 @@ import type { AiState } from './messages';
 
 const KEY_SECRET = 'codeArchaeologist.geminiApiKey';
 const GITHUB_SECRET = 'codeArchaeologist.githubToken';
+const GITLAB_SECRET = 'codeArchaeologist.gitlabToken';
 
 export function activate(context: vscode.ExtensionContext): void {
   const output = vscode.window.createOutputChannel('Code Archaeologist');
@@ -46,23 +48,30 @@ export function activate(context: vscode.ExtensionContext): void {
     return (await context.secrets.get(GITHUB_SECRET)) || process.env.GITHUB_TOKEN || undefined;
   }
 
-  /** Reads PRs, reviews and issues for the raw trace, then writes the story from all of it. */
+  async function gitlabToken(): Promise<string | undefined> {
+    return (await context.secrets.get(GITLAB_SECRET)) || process.env.GITLAB_TOKEN || undefined;
+  }
+
+  /** Reads PRs (or GitLab merge requests), reviews and issues for the raw trace, then writes the story from all of it. */
   async function explain(raw: Timeline, panel: ArchaeologistPanel): Promise<void> {
     pending?.abort();
     shown = { timeline: raw, raw, panel };
-    if (!raw.github || raw.steps.length === 0) return tellStory(raw, raw, panel);
+    if ((!raw.github && !raw.gitlab) || raw.steps.length === 0) return tellStory(raw, raw, panel);
+    const host = raw.gitlab ? 'GitLab' : 'GitHub';
 
     const controller = new AbortController();
     pending = controller;
-    panel.post({ type: 'timeline', timeline: raw, ai: { status: 'reading', message: 'Reading pull requests…' } });
+    panel.post({ type: 'timeline', timeline: raw, ai: { status: 'reading', message: raw.gitlab ? 'Reading merge requests…' : 'Reading pull requests…' } });
     let timeline: Timeline;
     try {
-      timeline = await addGitHubContext(raw, {
-        token: await githubToken(),
+      const options = {
         cache: github,
         signal: controller.signal,
-        onProgress: (message) => panel.post({ type: 'progress', message: `${message}…` }),
-      });
+        onProgress: (message: string) => panel.post({ type: 'progress', message: `${message}…` }),
+      };
+      timeline = raw.gitlab
+        ? await addGitLabContext(raw, { ...options, token: await gitlabToken() })
+        : await addGitHubContext(raw, { ...options, token: await githubToken() });
     } catch (error) {
       if (controller.signal.aborted) return;
       throw error;
@@ -71,7 +80,7 @@ export function activate(context: vscode.ExtensionContext): void {
     }
     if (controller.signal.aborted) return;
     const c = timeline.context;
-    if (c) output.appendLine(`GitHub for ${raw.file}: ${c.prs} PRs, ${c.reviews} comments, ${c.issues} issues${c.error ? `; ${c.error}` : ''}`);
+    if (c) output.appendLine(`${host} for ${raw.file}: ${c.prs} PRs, ${c.reviews} comments, ${c.issues} issues${c.error ? `; ${c.error}` : ''}`);
     await tellStory(timeline, raw, panel);
   }
 
@@ -148,9 +157,29 @@ export function activate(context: vscode.ExtensionContext): void {
     if (shown) void explain(shown.raw, shown.panel);
   }
 
+  async function setGitLabToken(): Promise<void> {
+    const token = await vscode.window.showInputBox({
+      title: 'GitLab token',
+      prompt:
+        'Paste a GitLab personal access token with the read_api scope (User settings > Access tokens on your GitLab). It is kept in VS Code secret storage.',
+      password: true,
+      ignoreFocusOut: true,
+    });
+    if (token === undefined) return;
+    if (token.trim()) {
+      await context.secrets.store(GITLAB_SECRET, token.trim());
+      void vscode.window.showInformationMessage('Code Archaeologist: GitLab token saved.');
+    } else {
+      await context.secrets.delete(GITLAB_SECRET);
+      void vscode.window.showInformationMessage('Code Archaeologist: GitLab token removed.');
+    }
+    if (shown) void explain(shown.raw, shown.panel);
+  }
+
   ArchaeologistPanel.onAction = (message) => {
     if (message.type === 'set-key') void setApiKey();
     if (message.type === 'set-github-token') void setGitHubToken();
+    if (message.type === 'set-gitlab-token') void setGitLabToken();
     if (message.type === 'retry-story' && shown) void tellStory(shown.timeline, shown.raw, shown.panel);
   };
 
@@ -159,6 +188,7 @@ export function activate(context: vscode.ExtensionContext): void {
     { dispose: () => pending?.abort() },
     vscode.commands.registerCommand('codeArchaeologist.setApiKey', setApiKey),
     vscode.commands.registerCommand('codeArchaeologist.setGitHubToken', setGitHubToken),
+    vscode.commands.registerCommand('codeArchaeologist.setGitLabToken', setGitLabToken),
     vscode.commands.registerCommand('codeArchaeologist.trace', async () => {
       const editor = vscode.window.activeTextEditor;
       if (!editor) {
@@ -185,6 +215,7 @@ export function activate(context: vscode.ExtensionContext): void {
           start,
           end,
           cache: timelines,
+          gitlabUrl: vscode.workspace.getConfiguration('codeArchaeologist').get<string>('gitlabUrl') || undefined,
           onProgress: (message) => panel.post({ type: 'progress', message: `${message}…` }),
         });
         if (document.isDirty) {
@@ -197,7 +228,7 @@ export function activate(context: vscode.ExtensionContext): void {
         panel.post({ type: 'error', message });
         return;
       }
-      // The raw timeline shows at once; GitHub context and then the story fill in after it.
+      // The raw timeline shows at once; GitHub or GitLab context and then the story fill in after it.
       await explain(timeline, panel);
     }),
   );

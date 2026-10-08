@@ -25,4 +25,15 @@ export {
   type Provider,
   type WriteStoryOptions,
 } from './story.js';
-export { addGitHubContext, prFromMessage, linkedRefs, stripTemplate, GitHubError, type GitHubOptions } from './github.js';
+export {
+  addGitHubContext,
+  addForgeContext,
+  prFromMessage,
+  linkedRefs,
+  stripTemplate,
+  GitHubError,
+  type GitHubOptions,
+  type Forge,
+  type ForgeRef,
+} from './github.js';
+export { addGitLabContext, parseGitLabRemote, gitlabLinkedRefs, mrFromMessage, GitLabError, type GitLabOptions } from './gitlab.js';

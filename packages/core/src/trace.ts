@@ -4,6 +4,7 @@ import { LOG_FORMAT, parseLineLog, postImage, preImage, type RawCommit } from '.
 import { classifyNoise } from './noise.js';
 import type { TimelineCache } from './cache.js';
 import type { NoiseCommit, Step, Timeline } from './types.js';
+import { parseGitLabRemote } from './gitlab.js';
 
 export type TraceOptions = {
   /** Absolute path, or relative to `cwd`. */
@@ -19,6 +20,8 @@ export type TraceOptions = {
   cache?: TimelineCache;
   /** Called with short progress lines such as "Tracing 19 commits". */
   onProgress?: (message: string) => void;
+  /** A self-hosted GitLab whose host name has no "gitlab" in it, e.g. "https://git.example.com". */
+  gitlabUrl?: string;
 };
 
 /** Where a file lives in its repository. */
@@ -61,10 +64,11 @@ export async function trace(options: TraceOptions): Promise<Timeline> {
     );
   }
 
-  const github = await githubRepo(git, root);
+  const { github, gitlab } = await originRepo(git, root, options.gitlabUrl);
+  const host = { ...(github && { github }), ...(gitlab && { gitlab }) };
   const cacheKey = { root, file: relativePath, range: [start, end] as [number, number], head };
   const cached = options.keepNoise ? undefined : await options.cache?.get(cacheKey);
-  if (cached) return { ...cached, github, warnings: [...warnings, ...cached.warnings] };
+  if (cached) return { ...cached, ...host, warnings: [...warnings, ...cached.warnings] };
 
   options.onProgress?.('Tracing history');
   let output: string;
@@ -84,7 +88,7 @@ export async function trace(options: TraceOptions): Promise<Timeline> {
   options.onProgress?.(`Tracing ${raw.length} commits`);
   const timeline = buildTimeline(raw, { file: relativePath, range: [start, end], head, keepNoise: options.keepNoise });
   if (!options.keepNoise) await options.cache?.set(cacheKey, timeline);
-  return { ...timeline, github, warnings: [...warnings, ...timeline.warnings] };
+  return { ...timeline, ...host, warnings: [...warnings, ...timeline.warnings] };
 }
 
 /** Pure part of the trace: turns parsed commits (oldest first) into a Timeline. */
@@ -134,10 +138,14 @@ export function parseGitHubRemote(url: string): { owner: string; repo: string } 
   return match ? { owner: match[1]!, repo: match[2]! } : undefined;
 }
 
-async function githubRepo(git: GitRunner, root: string): Promise<{ owner: string; repo: string } | undefined> {
+/** The GitHub repository or GitLab project behind `origin`, if either. */
+async function originRepo(git: GitRunner, root: string, gitlabUrl?: string): Promise<Pick<Timeline, 'github' | 'gitlab'>> {
+  let remote: string;
   try {
-    return parseGitHubRemote(await git(['remote', 'get-url', 'origin'], root));
+    remote = await git(['remote', 'get-url', 'origin'], root);
   } catch {
-    return undefined; // no origin remote
+    return {}; // no origin remote
   }
+  const github = parseGitHubRemote(remote);
+  return github ? { github } : { gitlab: parseGitLabRemote(remote, gitlabUrl) };
 }

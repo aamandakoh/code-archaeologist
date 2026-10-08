@@ -9,7 +9,7 @@ export type AiState =
   | { status: 'no-key' }
   | { status: 'error'; message: string };
 
-/** Extension → webview. The webview never calls git, GitHub or the model itself. */
+/** Extension → webview. The webview never calls git, GitHub, GitLab or the model itself. */
 export type ToWebview =
   | { type: 'loading'; file: string; range: [number, number]; message: string }
   | { type: 'progress'; message: string }
@@ -18,4 +18,4 @@ export type ToWebview =
   | { type: 'error'; message: string };
 
 /** Webview → extension. */
-export type FromWebview = { type: 'ready' } | { type: 'set-key' } | { type: 'set-github-token' } | { type: 'retry-story' };
+export type FromWebview = { type: 'ready' } | { type: 'set-key' } | { type: 'set-github-token' } | { type: 'set-gitlab-token' } | { type: 'retry-story' };

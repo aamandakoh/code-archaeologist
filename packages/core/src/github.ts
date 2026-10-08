@@ -26,21 +26,55 @@ const KEEP = { bodyChars: 4_000, commentChars: 1_500, issueBodyChars: 800 };
 export async function addGitHubContext(timeline: Timeline, options: GitHubOptions = {}): Promise<Timeline> {
   const repo = timeline.github;
   if (!repo || timeline.steps.length === 0) return timeline;
-  const api = new GitHubApi(repo, options);
+  return addForgeContext(timeline, new GitHubApi(repo, options), options);
+}
+
+/** A link from a commit or PR to an issue it fixes or a PR it reverts. */
+export type ForgeRef = {
+  number: number;
+  relation: 'fixes' | 'reverts';
+  /** Set where issues and PRs are numbered apart (GitLab). GitHub says which when the issue is read. */
+  kind?: 'issue' | 'pr';
+};
+
+/** What a code host answers. GitHub and GitLab each implement it; the steps below are shared. */
+export interface Forge {
+  readonly concurrency: number;
+  /** Called once first; throws when the repository cannot be read at all. */
+  check?(): Promise<void>;
+  /** Something left out without failing the rest, reported as `context.error` when nothing worse is. */
+  readonly warning?: string;
+  prFromMessage(message: string): number | undefined;
+  prForCommit(sha: string): Promise<number | undefined>;
+  pullRequest(n: number, file: string): Promise<PullRequest | undefined>;
+  linkedRefs(text: string, shaToPr: (sha: string) => number | undefined): ForgeRef[];
+  issue(n: number, kind?: 'issue' | 'pr'): Promise<{ issue: LinkedIssue; discussion: Review[] } | undefined>;
+}
+
+/** The shared steps behind addGitHubContext and addGitLabContext. */
+export async function addForgeContext(
+  timeline: Timeline,
+  api: Forge,
+  options: { token?: string; signal?: AbortSignal; onProgress?: (message: string) => void },
+  source?: GitHubContext['source'],
+): Promise<Timeline> {
   const steps: Step[] = timeline.steps.map((s) => ({ ...s, pr: undefined, reviews: [], issues: [] }));
-  const context: GitHubContext = { token: Boolean(options.token), prs: 0, reviews: 0, issues: 0 };
+  const context: GitHubContext = { token: Boolean(options.token), prs: 0, reviews: 0, issues: 0, ...(source && { source }) };
+  const refKey = (ref: { number: number; kind?: string }) => `${ref.kind ?? ''}:${ref.number}`;
 
   try {
-    // 1. Which PR merged each commit: from the message when it says, else GitHub's "PRs for a commit".
+    await api.check?.();
+
+    // 1. Which PR merged each commit: from the message when it says, else the host's "PRs for a commit".
     const prOf = new Map<string, number>();
     await mapLimit(steps, api.concurrency, async (step) => {
-      const n = prFromMessage(step.commit.message) ?? (await api.prForCommit(step.commit.sha));
+      const n = api.prFromMessage(step.commit.message) ?? (await api.prForCommit(step.commit.sha));
       if (n !== undefined) prOf.set(step.commit.sha, n);
     });
 
     // 2. Each PR once: description, line comments on this file, review summaries and discussion.
     const numbers = [...new Set(prOf.values())];
-    options.onProgress?.(`Reading ${numbers.length} pull request${numbers.length === 1 ? '' : 's'}`);
+    options.onProgress?.(`Reading ${numbers.length} ${source === 'gitlab' ? 'merge request' : 'pull request'}${numbers.length === 1 ? '' : 's'}`);
     const prs = new Map<number, PullRequest>();
     await mapLimit(numbers, api.concurrency, async (n) => {
       const pr = await api.pullRequest(n, path.posix.basename(timeline.file));
@@ -52,18 +86,18 @@ export async function addGitHubContext(timeline: Timeline, options: GitHubOption
       const step = steps.find((s) => s.commit.sha.startsWith(sha.toLowerCase()));
       return step ? prOf.get(step.commit.sha) : undefined;
     };
-    const links = new Map<Step, { number: number; relation: 'fixes' | 'reverts' }[]>();
+    const links = new Map<Step, ForgeRef[]>();
     for (const step of steps) {
       const own = prOf.get(step.commit.sha);
-      const found = linkedRefs(`${step.commit.message}\n${prs.get(own ?? -1)?.body ?? ''}`, repo, shaToPr);
-      links.set(step, found.filter((l) => l.number !== own));
+      const found = api.linkedRefs(`${step.commit.message}\n${prs.get(own ?? -1)?.body ?? ''}`, shaToPr);
+      links.set(step, found.filter((l) => l.number !== own || l.kind === 'issue'));
     }
-    const wanted = [...new Set([...links.values()].flat().map((l) => l.number))];
+    const wanted = [...new Map([...links.values()].flat().map((l) => [refKey(l), l])).values()];
     if (wanted.length > 0) options.onProgress?.(`Reading ${wanted.length} linked issue${wanted.length === 1 ? '' : 's'}`);
-    const issues = new Map<number, { issue: LinkedIssue; discussion: Review[] }>();
-    await mapLimit(wanted, api.concurrency, async (n) => {
-      const found = await api.issue(n);
-      if (found) issues.set(n, found);
+    const issues = new Map<string, { issue: LinkedIssue; discussion: Review[] }>();
+    await mapLimit(wanted, api.concurrency, async (ref) => {
+      const found = await api.issue(ref.number, ref.kind);
+      if (found) issues.set(refKey(ref), found);
     });
 
     // 4. Put it together.
@@ -71,7 +105,7 @@ export async function addGitHubContext(timeline: Timeline, options: GitHubOption
       const pr = prs.get(prOf.get(step.commit.sha) ?? -1);
       const reviews: Review[] = [];
       for (const link of links.get(step) ?? []) {
-        const found = issues.get(link.number);
+        const found = issues.get(refKey(link));
         if (!found) continue;
         step.issues.push({ ...found.issue, relation: link.relation });
         // The reason for a revert is usually in the discussion on the PR it undid.
@@ -94,10 +128,11 @@ export async function addGitHubContext(timeline: Timeline, options: GitHubOption
     if (options.signal?.aborted) throw error;
     context.error = error instanceof Error ? error.message : String(error);
   }
+  if (!context.error && api.warning) context.error = api.warning;
 
   context.prs = new Set(steps.flatMap((s) => (s.pr ? [s.pr.number] : []))).size;
   context.reviews = steps.reduce((n, s) => n + s.reviews.length, 0);
-  context.issues = new Set(steps.flatMap((s) => s.issues.map((i) => i.number))).size;
+  context.issues = new Set(steps.flatMap((s) => s.issues.map((i) => `${i.kind ?? ''}:${i.number}`))).size;
   return { ...timeline, steps, context };
 }
 
@@ -137,7 +172,7 @@ export function linkedRefs(
 }
 
 /** "This reverts commit <sha>." as git writes it. */
-function revertedShas(message: string): string[] {
+export function revertedShas(message: string): string[] {
   return [...message.matchAll(/\bThis reverts commit ([0-9a-f]{7,40})\b/gi)].map((m) => m[1]!);
 }
 
@@ -163,7 +198,7 @@ export function stripTemplate(text: string): string {
     .trim();
 }
 
-type PullRequest = { number: number; title: string; body: string; url: string; discussion: Review[] };
+export type PullRequest = { number: number; title: string; body: string; url: string; discussion: Review[] };
 
 type GitHubUser = { login?: string; type?: string } | null;
 type ApiComment = { user: GitHubUser; body?: string | null; html_url: string; created_at?: string; submitted_at?: string; path?: string; state?: string };
@@ -177,7 +212,7 @@ export class GitHubError extends Error {
   }
 }
 
-class GitHubApi {
+class GitHubApi implements Forge {
   readonly concurrency: number;
   private readonly base: string;
   private readonly doFetch: typeof fetch;
@@ -191,6 +226,14 @@ class GitHubApi {
     this.concurrency = options.concurrency ?? 4;
     this.base = `${options.apiUrl ?? 'https://api.github.com'}/repos/${repo.owner}/${repo.repo}`;
     this.doFetch = options.fetch ?? fetch;
+  }
+
+  prFromMessage(message: string): number | undefined {
+    return prFromMessage(message);
+  }
+
+  linkedRefs(text: string, shaToPr: (sha: string) => number | undefined): ForgeRef[] {
+    return linkedRefs(text, this.repo, shaToPr);
   }
 
   async prForCommit(sha: string): Promise<number | undefined> {
@@ -303,7 +346,7 @@ function isBot(user: GitHubUser): boolean {
   return !user || user.type === 'Bot' || /\[bot\]$/.test(user.login ?? '');
 }
 
-async function mapLimit<T>(items: T[], limit: number, run: (item: T) => Promise<void>): Promise<void> {
+export async function mapLimit<T>(items: T[], limit: number, run: (item: T) => Promise<void>): Promise<void> {
   let next = 0;
   const worker = async () => {
     while (next < items.length) await run(items[next++]!);
@@ -311,10 +354,10 @@ async function mapLimit<T>(items: T[], limit: number, run: (item: T) => Promise<
   await Promise.all(Array.from({ length: Math.min(limit, items.length) }, worker));
 }
 
-function clip(text: string, max: number): string {
+export function clip(text: string, max: number): string {
   return text.length <= max ? text : `${text.slice(0, max)}…`;
 }
 
-function escape(text: string): string {
+export function escape(text: string): string {
   return text.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 }

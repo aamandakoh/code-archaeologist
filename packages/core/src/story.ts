@@ -1,6 +1,7 @@
 import { z } from 'zod';
 import type { LinkedIssue, Step, Story, Timeline } from './types.js';
 import { prFromMessage } from './github.js';
+import { mrFromMessage } from './gitlab.js';
 import type { StoryCache } from './cache.js';
 
 /** Bump when the prompt or the Story shape changes, so cached stories are regenerated. */
@@ -97,7 +98,7 @@ export type StoryPrompt = {
 export function buildStoryPrompt(timeline: Timeline, limits = LIMITS): StoryPrompt {
   const steps = timeline.steps;
   const ids = new Set<string>();
-  for (const step of steps) for (const id of evidenceIds(step)) ids.add(id);
+  for (const step of steps) for (const id of evidenceIds(step, Boolean(timeline.gitlab))) ids.add(id);
 
   // Which steps go in full. Over the commit cap, keep the oldest few and the newest.
   const full = steps.map(() => true);
@@ -170,12 +171,18 @@ function renderReduced(step: Step): string {
 }
 
 /** Ids the model may cite for one step. PR and issue numbers written in the message count too. */
-function evidenceIds(step: Step): string[] {
+function evidenceIds(step: Step, gitlab = false): string[] {
   const ids = [`commit:${short(step.commit.sha)}`];
   if (step.pr) ids.push(`pr:${step.pr.number}`);
-  // A "#n" in the message is a PR unless GitHub said it is an issue.
-  const issues = new Set(step.issues.filter((i) => i.kind !== 'pr').map((i) => i.number));
-  for (const m of step.commit.message.matchAll(/(?:^|[\s(])#(\d+)\b/g)) if (!issues.has(Number(m[1]))) ids.push(`pr:${m[1]}`);
+  if (gitlab) {
+    // GitLab numbers issues ("#n") and merge requests ("!n") apart.
+    for (const m of step.commit.message.matchAll(/(?:^|[\s(])#(\d+)\b/g)) ids.push(`issue:${m[1]}`);
+    for (const m of step.commit.message.matchAll(/(?:^|[\s(\w/])!(\d+)\b/g)) ids.push(`pr:${m[1]}`);
+  } else {
+    // A "#n" in the message is a PR unless GitHub said it is an issue.
+    const issues = new Set(step.issues.filter((i) => i.kind !== 'pr').map((i) => i.number));
+    for (const m of step.commit.message.matchAll(/(?:^|[\s(])#(\d+)\b/g)) if (!issues.has(Number(m[1]))) ids.push(`pr:${m[1]}`);
+  }
   step.reviews.forEach((review, i) => {
     ids.push(`review:${short(step.commit.sha)}-${i + 1}`);
     if (review.on) ids.push(`pr:${review.on}`);
@@ -194,8 +201,8 @@ function oneLine(text: string): string {
 }
 
 /** The PR that merged a commit: from GitHub when known, else the number the merge tool wrote into the message. */
-function mergedPr(step: Step): string | undefined {
-  const n = step.pr?.number ?? prFromMessage(step.commit.message);
+function mergedPr(step: Step, gitlab = false): string | undefined {
+  const n = step.pr?.number ?? (gitlab ? mrFromMessage : prFromMessage)(step.commit.message);
   return n === undefined ? undefined : `pr:${n}`;
 }
 
@@ -223,6 +230,7 @@ export function parseStory(text: string, timeline: Timeline, prompt: StoryPrompt
   const out = parsed.data;
 
   const known = new Set(prompt.ids);
+  const mr = Boolean(timeline.gitlab);
   const shas = timeline.steps.map((s) => s.commit.sha);
   const fullSha = (ref: string) => {
     const hex = ref.trim().toLowerCase();
@@ -256,9 +264,9 @@ export function parseStory(text: string, timeline: Timeline, prompt: StoryPrompt
     const { citations, flagged } = check(step.citations);
     // A note about a commit also cites the PR its message names, when the model left it out.
     const own = timeline.steps.find((s) => s.commit.sha === sha)!;
-    const pr = flagged ? undefined : mergedPr(own);
+    const pr = flagged ? undefined : mergedPr(own, mr);
     if (pr && !citations.includes(pr)) citations.push(pr);
-    notes.set(sha, { commit: sha, note: prose(step.note), citations, ...(flagged && { flagged }) });
+    notes.set(sha, { commit: sha, note: prose(step.note, mr), citations, ...(flagged && { flagged }) });
   }
 
   return {
@@ -268,7 +276,7 @@ export function parseStory(text: string, timeline: Timeline, prompt: StoryPrompt
       level: out.verdict.level,
       reasons: out.verdict.reasons.slice(0, 5).map((r) => {
         const { citations, flagged } = check(r.citations);
-        return { text: prose(r.text), citations, ...(flagged && { flagged }) };
+        return { text: prose(r.text, mr), citations, ...(flagged && { flagged }) };
       }),
       checks: out.verdict.checks.map((c) => c.trim()).filter(Boolean).slice(0, 5),
     },
@@ -538,12 +546,16 @@ export async function writeStory(timeline: Timeline, options: WriteStoryOptions)
   return story;
 }
 
-/** Turns ids the model wrote into the text anyway into what a reader expects: "commit:b35fa73" → "b35fa73", "pr:49659" → "#49659". */
-function prose(text: string): string {
+/**
+ * Turns ids the model wrote into the text anyway into what a reader expects: "commit:b35fa73" →
+ * "b35fa73", "pr:49659" → "#49659", or "!49659" for a GitLab merge request.
+ */
+function prose(text: string, mr = false): string {
   return text
     .trim()
     .replace(/\bcommit:([0-9a-f]{7,40})\b/gi, (_, sha: string) => short(sha))
-    .replace(/\b(?:pr|issue):(\d+)\b/gi, '#$1');
+    .replace(/\bpr:(\d+)\b/gi, mr ? '!$1' : '#$1')
+    .replace(/\bissue:(\d+)\b/gi, '#$1');
 }
 
 function short(sha: string): string {

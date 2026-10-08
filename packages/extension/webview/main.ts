@@ -143,7 +143,7 @@ function renderTimeline(t: Timeline) {
     'header',
     { class: 'summary' },
     el('h1', { text: `${t.file}:${start}-${end}` }),
-    el('p', { class: 'meta', text: `${plural(t.steps.length, 'commit')} · ${span}${t.context ? ` · ${plural(t.context.prs, 'pull request')} from GitHub` : ''}` }),
+    el('p', { class: 'meta', text: `${plural(t.steps.length, 'commit')} · ${span}${t.context ? ` · ${plural(t.context.prs, forge(t).pr)} from ${forge(t).name}` : ''}` }),
     noise,
   );
 
@@ -483,12 +483,26 @@ function citedSteps(t: Timeline): Set<number> {
   return out;
 }
 
-/** GitHub's view of the file as it was at this commit, at the traced lines. */
+/** GitHub's or GitLab's view of the file as it was at this commit, at the traced lines. */
 function fileAtCommit(t: Timeline, step: Step): string | undefined {
-  if (!t.github) return undefined;
+  const repo = forge(t).web;
+  if (!repo) return undefined;
   const file = /^\+\+\+ b\/(.+)$/m.exec(step.diff)?.[1] ?? t.file;
   const end = step.startLine + step.snapshot.split('\n').length - 1;
-  return `https://github.com/${t.github.owner}/${t.github.repo}/blob/${step.commit.sha}/${file}#L${step.startLine}-L${end}`;
+  return t.gitlab
+    ? `${repo}/-/blob/${step.commit.sha}/${file}#L${step.startLine}-${end}`
+    : `${repo}/blob/${step.commit.sha}/${file}#L${step.startLine}-L${end}`;
+}
+
+/** Where the timeline's PRs live and what they are called there. GitLab has merge requests, "!12". */
+function forge(t: Timeline): { name: string; pr: string; sign: string; web?: string } {
+  if (t.gitlab) return { name: 'GitLab', pr: 'merge request', sign: '!', web: `${t.gitlab.url}/${t.gitlab.project}` };
+  return { name: 'GitHub', pr: 'pull request', sign: '#', web: t.github && `https://github.com/${t.github.owner}/${t.github.repo}` };
+}
+
+/** "#12" for a PR or issue, "!12" for a GitLab merge request. */
+function refLabel(t: Timeline, kind: string | undefined, n: number | string): string {
+  return `${kind === 'pr' ? forge(t).sign : '#'}${n}`;
 }
 
 function sameTrace(a: Timeline, b: Timeline): boolean {
@@ -557,7 +571,7 @@ function renderStory(t: Timeline, state: AiState): HTMLElement {
       );
       if (target !== undefined) {
         item.addEventListener('click', (e) => {
-          if ((e.target as HTMLElement).closest('a')) return; // chips open GitHub
+          if ((e.target as HTMLElement).closest('a')) return; // chips open GitHub or GitLab
           stop();
           select(target);
           document.getElementById('step')?.scrollIntoView({ block: 'nearest', behavior: reducedMotion.matches ? 'auto' : 'smooth' });
@@ -611,24 +625,25 @@ function renderStory(t: Timeline, state: AiState): HTMLElement {
   );
 }
 
-/** "commit messages and diffs", plus what GitHub added. */
+/** "commit messages and diffs", plus what GitHub or GitLab added. */
 function evidenceSources(t: Timeline): string {
   const c = t.context;
   if (!c || c.prs === 0) return 'commit messages and diffs';
-  const parts = [`${c.prs} pull request${c.prs === 1 ? '' : 's'}`];
+  const parts = [plural(c.prs, forge(t).pr)];
   if (c.reviews > 0) parts.push(`${c.reviews} review comment${c.reviews === 1 ? '' : 's'}`);
   if (c.issues > 0) parts.push(`${c.issues} linked issue${c.issues === 1 ? '' : 's'}`);
   return `commit messages, diffs, ${parts.join(', ')}`;
 }
 
-/** Says when GitHub context is missing or partial, with a button to add a token when that would help. */
+/** Says when GitHub or GitLab context is missing or partial, with a button to add a token when that would help. */
 function githubNotice(t: Timeline): HTMLElement | undefined {
   const c = t.context;
   if (!c?.error) return undefined;
-  const notice = el('p', { class: 'github-notice', text: `Pull requests and reviews may be missing. ${c.error}` });
+  const { name, pr } = forge(t);
+  const notice = el('p', { class: 'github-notice', text: `${pr[0]!.toUpperCase()}${pr.slice(1)}s and reviews may be missing. ${c.error}` });
   if (!c.token) {
-    const b = el('button', { class: 'action secondary', text: 'Add GitHub token' });
-    b.addEventListener('click', () => vscode.postMessage({ type: 'set-github-token' }));
+    const b = el('button', { class: 'action secondary', text: `Add ${name} token` });
+    b.addEventListener('click', () => vscode.postMessage({ type: t.gitlab ? 'set-gitlab-token' : 'set-github-token' }));
     notice.append(' ', b);
   }
   return notice;
@@ -640,12 +655,12 @@ function renderEvidence(t: Timeline, step: Step): HTMLElement | undefined {
   const links = el(
     'p',
     { class: 'evidence-links' },
-    step.pr && el('a', { class: 'pr', attrs: { href: step.pr.url, title: 'Pull request' } }, el('span', { class: 'chip', text: `#${step.pr.number}` }), ` ${step.pr.title}`),
+    step.pr && el('a', { class: 'pr', attrs: { href: step.pr.url, title: forge(t).pr } }, el('span', { class: 'chip', text: refLabel(t, 'pr', step.pr.number) }), ` ${step.pr.title}`),
     ...step.issues.map((issue) =>
       el(
         'a',
         { class: 'issue', attrs: { href: issue.url } },
-        el('span', { class: 'chip', text: `${issue.relation === 'reverts' ? 'reverts' : 'fixes'} #${issue.number}` }),
+        el('span', { class: 'chip', text: `${issue.relation === 'reverts' ? 'reverts' : 'fixes'} ${refLabel(t, issue.kind, issue.number)}` }),
         ` ${issue.title}`,
       ),
     ),
@@ -658,7 +673,7 @@ function renderEvidence(t: Timeline, step: Step): HTMLElement | undefined {
     el(
       'details',
       { class: 'reviews', attrs: open ? { open: '' } : {} },
-      el('summary', { text: `${plural(step.reviews.length, 'comment')} from GitHub` }),
+      el('summary', { text: `${plural(step.reviews.length, 'comment')} from ${forge(t).name}` }),
       el(
         'ol',
         {},
@@ -671,7 +686,7 @@ function renderEvidence(t: Timeline, step: Step): HTMLElement | undefined {
               { class: 'meta' },
               el('a', { text: review.author, attrs: { href: review.url } }),
               review.date ? ` · ${shortDate(review.date)}` : '',
-              review.on ? ` · on reverted #${review.on}` : '',
+              review.on ? ` · on reverted ${refLabel(t, 'pr', review.on)}` : '',
               review.path ? ` · on ${review.path.split('/').pop()}` : '',
             ),
             el('blockquote', { text: review.body }),
@@ -692,7 +707,7 @@ function renderNote(t: Timeline, step: Step): HTMLElement {
   return el('p', { class: 'note' }, el('span', { text: note.note }), ' ', citationChips(t, note));
 }
 
-/** Chips linking each citation to GitHub, or an "unverified" marker when none survived the check. */
+/** Chips linking each citation to GitHub or GitLab, or an "unverified" marker when none survived the check. */
 function citationChips(t: Timeline, claim: { citations: string[]; flagged?: boolean }): HTMLElement {
   if (claim.flagged) {
     return el('span', { class: 'chips' }, el('span', { class: 'chip unverified', text: 'unverified', attrs: { title: 'None of the cited ids matched the evidence' } }));
@@ -719,7 +734,7 @@ function citationLabel(t: Timeline, citation: string): string {
     const author = t.steps.find((s) => s.commit.sha.startsWith(sha ?? ''))?.reviews[Number(n) - 1]?.author;
     return author ? `${author}'s comment` : 'comment';
   }
-  return kind === 'pr' || kind === 'issue' ? `#${ref}` : ref;
+  return kind === 'pr' || kind === 'issue' ? refLabel(t, kind, ref) : ref;
 }
 
 function citationUrl(t: Timeline, citation: string): string | undefined {
@@ -728,14 +743,15 @@ function citationUrl(t: Timeline, citation: string): string | undefined {
     const [sha, n] = ref.split('-');
     return t.steps.find((s) => s.commit.sha.startsWith(sha ?? ''))?.reviews[Number(n) - 1]?.url;
   }
-  if (!t.github) return undefined;
-  const repo = `https://github.com/${t.github.owner}/${t.github.repo}`;
+  const repo = forge(t).web;
+  if (!repo) return undefined;
+  const sep = t.gitlab ? '/-' : '';
   if (kind === 'commit') {
     const sha = t.steps.find((s) => s.commit.sha.startsWith(ref))?.commit.sha ?? ref;
-    return `${repo}/commit/${sha}`;
+    return `${repo}${sep}/commit/${sha}`;
   }
-  if (kind === 'pr') return `${repo}/pull/${ref}`;
-  if (kind === 'issue') return `${repo}/issues/${ref}`;
+  if (kind === 'pr') return `${repo}${sep}/${t.gitlab ? 'merge_requests' : 'pull'}/${ref}`;
+  if (kind === 'issue') return `${repo}${sep}/issues/${ref}`;
   return undefined;
 }
 
@@ -746,7 +762,9 @@ function stepForCitations(t: Timeline, citations: string[]): number | undefined 
     const index = t.steps.findIndex((s) =>
       kind === 'commit' || kind === 'review'
         ? s.commit.sha.startsWith(ref.split('-')[0] ?? ref)
-        : s.pr?.number === Number(ref) || new RegExp(`#${ref}\\b`).test(s.commit.message) || s.issues.some((i) => i.number === Number(ref)),
+        : (kind === 'pr' && s.pr?.number === Number(ref)) ||
+          new RegExp(`${kind === 'pr' ? forge(t).sign : '#'}${ref}\\b`).test(s.commit.message) ||
+          s.issues.some((i) => i.number === Number(ref) && (!t.gitlab || (i.kind ?? 'issue') === kind)),
     );
     if (index >= 0) return index;
   }
@@ -755,10 +773,11 @@ function stepForCitations(t: Timeline, citations: string[]): number | undefined 
 
 function commitLink(t: Timeline, sha: string): HTMLElement {
   const label = sha.slice(0, 7);
-  if (!t.github) return el('code', { class: 'sha', text: label });
+  const repo = forge(t).web;
+  if (!repo) return el('code', { class: 'sha', text: label });
   return el(
     'a',
-    { attrs: { href: `https://github.com/${t.github.owner}/${t.github.repo}/commit/${sha}`, title: sha } },
+    { attrs: { href: `${repo}${t.gitlab ? '/-' : ''}/commit/${sha}`, title: sha } },
     el('code', { class: 'sha', text: label }),
   );
 }

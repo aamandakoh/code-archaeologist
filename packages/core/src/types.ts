@@ -14,6 +14,8 @@ export type Timeline = {
   noise: NoiseCommit[];
   /** The GitHub repository behind `origin`, when there is one. Used for links. */
   github?: { owner: string; repo: string };
+  /** The GitLab project behind `origin`, when there is one: its web root and full path. */
+  gitlab?: { url: string; project: string };
   /** Things the reader should know, e.g. uncommitted edits in the file. */
   warnings: string[];
   /** PRs, reviews and issues found on GitHub (milestone 3). Absent when not looked up. */
@@ -77,8 +79,10 @@ export type LinkedIssue = {
   relation?: 'fixes' | 'reverts';
 };
 
-/** What milestone 3 found on GitHub for a timeline. */
+/** What milestone 3 found on GitHub or GitLab for a timeline. PRs are GitLab merge requests there. */
 export type GitHubContext = {
+  /** Where it came from. Absent means GitHub. */
+  source?: 'github' | 'gitlab';
   /** Whether a token was used. Without one GitHub allows 60 requests an hour. */
   token: boolean;
   prs: number;

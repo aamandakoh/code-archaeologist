@@ -2,7 +2,7 @@
   "name": "code-archaeologist",
   "displayName": "Code Archaeologist",
   "description": "Select code and see how it evolved commit by commit, and why.",
-  "version": "0.5.0",
+  "version": "0.6.0",
   "private": true,
   "publisher": "code-archaeologist",
   "license": "MIT",
@@ -34,6 +34,11 @@
       {
         "command": "codeArchaeologist.setGitHubToken",
         "title": "Set GitHub token",
+        "category": "Code Archaeologist"
+      },
+      {
+        "command": "codeArchaeologist.setGitLabToken",
+        "title": "Set GitLab token",
         "category": "Code Archaeologist"
       }
     ],
@@ -69,6 +74,11 @@
           "type": "string",
           "default": "",
           "markdownDescription": "LLM API URL, up to the version path, e.g. `https://openrouter.ai/api/v1` or `http://localhost:11434/v1` for the OpenAI-compatible format. Empty uses `https://generativelanguage.googleapis.com/v1beta` for Gemini and `https://api.openai.com/v1` for OpenAI-compatible."
+        },
+        "codeArchaeologist.gitlabUrl": {
+          "type": "string",
+          "default": "",
+          "markdownDescription": "Your self-hosted GitLab, e.g. `https://git.example.com`. Only needed when its host name has no \"gitlab\" in it: remotes on gitlab.com or a host like `gitlab.example.com` are found on their own. Merge requests, comments and issues are read with the token set by **Code Archaeologist: Set GitLab token** (or `GITLAB_TOKEN`), which needs the `read_api` scope."
         },
         "codeArchaeologist.model": {
           "type": "string",
