@@ -24,7 +24,9 @@ cited "safe to change?" verdict near the top.
 
 The panel on Angular's URL sanitizer (`url_sanitizer.ts` lines 38-48, the [demo snippet](#demo-snippet)),
 on the latest commit: the 2026 revert of a stricter `data:` and `vbscript:` check. The file and
-commit count stay pinned at the top, with the verdict and its cited reasons under them. The commit
+commit count stay pinned at the top, with the verdict and its cited reasons under them; clicking the
+verdict's header row folds the reasons away. Under the slider, **All 18 commits, oldest first** opens
+a list of every commit to jump to. The commit
 card puts the author and date beside how long after the previous change it came, links the
 commit, its pull request and the file at that commit on one line, then the AI note and the diff
 with removed lines kept visible. Below the diff, dropdowns hold the full commit message, the pull

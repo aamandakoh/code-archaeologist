@@ -76,8 +76,9 @@ summary { cursor: pointer; color: var(--muted); }
 .reasons li.jump { cursor: pointer; border-radius: 4px; }
 .reasons li.jump:hover, .reasons li.jump:focus { background: var(--vscode-list-hoverBackground); outline: none; }
 .reasons li.here { background: var(--vscode-editor-findMatchHighlightBackground, rgba(234, 92, 0, 0.25)); }
-.verdict-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
-.fold { padding: 0; border: none; background: none; cursor: pointer; color: var(--vscode-textLink-foreground); font-size: 0.85em; }
+.verdict-head { display: flex; align-items: center; gap: 6px; cursor: pointer; border-radius: 4px; }
+.verdict-head:focus-visible { outline: 1px solid var(--vscode-focusBorder); outline-offset: 2px; }
+.verdict-head .chevron { width: 1em; color: var(--muted); }
 .story.collapsed .reasons, .story.collapsed .checks, .story.collapsed .fineprint, .story.collapsed .github-notice { display: none; }
 .checks { margin-top: 6px; }
 .checks summary { font-weight: 600; }
@@ -207,8 +208,9 @@ summary { cursor: pointer; color: var(--muted); }
 .ln { width: 3.5em; flex: none; text-align: right; padding-right: 8px; color: var(--vscode-editorLineNumber-foreground, var(--muted)); user-select: none; }
 .mark { width: 1.2em; flex: none; color: var(--muted); user-select: none; }
 
-.history { margin-top: 20px; }
-.history ol { list-style: none; margin: 0; padding: 0; }
+.history { margin: 4px 0 10px; }
+.history > summary { padding: 4px 0; }
+.history ol { list-style: none; margin: 4px 0 0; padding: 0; max-height: 40vh; overflow-y: auto; position: relative; }
 .history li {
   display: grid; grid-template-columns: 6.5em 5.5em 1fr auto; gap: 8px; align-items: baseline;
   padding: 4px 6px; border-radius: 4px; cursor: pointer;

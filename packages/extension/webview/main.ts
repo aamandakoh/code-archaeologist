@@ -2,7 +2,7 @@ import type { JiraTicket, Review, Step, Story, Timeline } from '@code-archaeolog
 import type { AiState, FromWebview, ToWebview } from '../src/messages';
 
 /** `showRemoved` is on unless turned off. */
-type ViewState = { showRemoved?: boolean; storyCollapsed?: boolean };
+type ViewState = { showRemoved?: boolean; storyCollapsed?: boolean; commitsOpen?: boolean };
 
 declare function acquireVsCodeApi(): {
   postMessage(message: FromWebview): void;
@@ -166,30 +166,11 @@ function renderTimeline(t: Timeline) {
     select(current);
   });
 
-  const player = el(
-    'section',
-    { class: 'player', attrs: { 'aria-label': 'Time-lapse' } },
-    el(
-      'div',
-      { class: 'controls' },
-      prev,
-      el('div', { class: 'scrubber' }, slider, renderTrack(t)),
-      next,
-      el('span', { class: 'position', attrs: { id: 'position' } }),
-    ),
-    el(
-      'div',
-      { class: 'options' },
-      el('label', { attrs: { for: 'show-removed' } }, removedToggle, ' Keep removed lines visible'),
-      el('span', { class: 'hint', text: 'Click a dot · ← → step · Home End jump' }),
-    ),
-    el('div', { attrs: { id: 'step' } }),
-  );
-
+  // Another way to pick a commit, so it sits with the slider; closed unless the reader opened it.
   const list = el(
-    'section',
-    { class: 'history' },
-    el('h2', { text: 'All commits, oldest first' }),
+    'details',
+    { class: 'history', attrs: view.commitsOpen ? { open: '' } : {} },
+    el('summary', { text: `All ${plural(t.steps.length, 'commit')}, oldest first` }),
     el(
       'ol',
       { attrs: { id: 'commit-list' } },
@@ -212,7 +193,33 @@ function renderTimeline(t: Timeline) {
     ),
   );
 
-  app.replaceChildren(header, story, warnings || '', player, list);
+  list.addEventListener('toggle', () => {
+    saveView({ commitsOpen: list.open });
+    if (list.open) scrollListToCurrent();
+  });
+
+  const player = el(
+    'section',
+    { class: 'player', attrs: { 'aria-label': 'Time-lapse' } },
+    el(
+      'div',
+      { class: 'controls' },
+      prev,
+      el('div', { class: 'scrubber' }, slider, renderTrack(t)),
+      next,
+      el('span', { class: 'position', attrs: { id: 'position' } }),
+    ),
+    el(
+      'div',
+      { class: 'options' },
+      el('label', { attrs: { for: 'show-removed' } }, removedToggle, ' Keep removed lines visible'),
+      el('span', { class: 'hint', text: 'Click a dot · ← → step · Home End jump' }),
+    ),
+    list,
+    el('div', { attrs: { id: 'step' } }),
+  );
+
+  app.replaceChildren(header, story, warnings || '', player);
   select(current);
 }
 
@@ -274,6 +281,16 @@ function select(index: number, animate = false) {
     node.classList.toggle('here', node.getAttribute('data-step') === String(current));
   }
   document.getElementById('step')!.replaceChildren(renderStep(timeline, step, animate && !reducedMotion.matches));
+  scrollListToCurrent();
+}
+
+/** Keeps the current commit in view inside the open commit list, without scrolling the page. */
+function scrollListToCurrent(): void {
+  const list = document.getElementById('commit-list');
+  const row = list?.querySelector<HTMLElement>('li.current');
+  if (!list || !row || !(list.parentElement as HTMLDetailsElement | null)?.open) return;
+  if (row.offsetTop < list.scrollTop) list.scrollTop = row.offsetTop;
+  else if (row.offsetTop + row.offsetHeight > list.scrollTop + list.clientHeight) list.scrollTop = row.offsetTop + row.offsetHeight - list.clientHeight;
 }
 
 function renderStep(t: Timeline, step: Step, animate: boolean): HTMLElement {
@@ -546,18 +563,30 @@ function renderStory(t: Timeline, state: AiState): HTMLElement {
     .filter(Boolean)
     .join(' ');
 
-  // Folding hides the reasons and checks but keeps the verdict and summary pinned.
-  const fold = el('button', { class: 'fold', text: view.storyCollapsed ? 'Show reasons' : 'Hide reasons', attrs: { 'aria-expanded': String(!view.storyCollapsed) } });
-  fold.addEventListener('click', () => {
+  // Clicking the header row folds the reasons and checks away, keeping the verdict and summary.
+  const chevron = el('span', { class: 'chevron', text: view.storyCollapsed ? '▸' : '▾', attrs: { 'aria-hidden': 'true' } });
+  const head = el(
+    'div',
+    { class: 'verdict-head', attrs: { role: 'button', tabindex: '0', 'aria-expanded': String(!view.storyCollapsed), title: 'Show or hide the reasons' } },
+    chevron,
+    el('span', { class: 'badge', text: LEVELS[story.verdict.level] }),
+  );
+  const toggle = () => {
     saveView({ storyCollapsed: !view.storyCollapsed });
     document.getElementById('story')?.classList.toggle('collapsed', view.storyCollapsed);
-    fold.textContent = view.storyCollapsed ? 'Show reasons' : 'Hide reasons';
-    fold.setAttribute('aria-expanded', String(!view.storyCollapsed));
+    chevron.textContent = view.storyCollapsed ? '▸' : '▾';
+    head.setAttribute('aria-expanded', String(!view.storyCollapsed));
+  };
+  head.addEventListener('click', toggle);
+  head.addEventListener('keydown', (e) => {
+    if (e.key !== 'Enter' && e.key !== ' ') return;
+    e.preventDefault();
+    toggle();
   });
 
   return section(
     `ready level-${story.verdict.level}${view.storyCollapsed ? ' collapsed' : ''}`,
-    el('div', { class: 'verdict-head' }, el('span', { class: 'badge', text: LEVELS[story.verdict.level] }), fold),
+    head,
     el('p', { class: 'summary-line', text: story.summary }),
     reasons,
     checks,

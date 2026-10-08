@@ -7,7 +7,7 @@ editor with every commit that touched those lines, oldest first:
   lines that commit removed folding away, then the lines it added growing in.
 - Dots are coloured by kind of change
   (feature, fix, revert, refactor, docs) with year labels, and the commits the verdict cites are
-  ringed.
+  ringed. **All N commits, oldest first** under the slider opens a list of every commit to pick from.
 - Each step says who made the change, when, and how long after the previous change it came, links
   to the commit and to the file as it was at that commit, and keeps removed lines on screen as a
   diff (untick **Keep removed lines visible** to hide them).
@@ -16,7 +16,7 @@ Whitespace-only, formatting-only and license-header commits are skipped and list
 
 Under the file name: a one-sentence summary and a Low / Medium / High risk verdict with cited
 reasons (click one to jump to the commit it cites; the reasons about the commit on screen light
-up as you scrub; "Hide reasons" folds the card down to the verdict) and things to check before
+up as you scrub; click the verdict's header row to fold the card down to the verdict and summary) and things to check before
 you change it.
 Each commit card starts with its links on one line: the commit, the pull request or merge request
 that merged it (found from the commit message or, when the message names none, by asking GitHub or
