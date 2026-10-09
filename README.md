@@ -1,7 +1,7 @@
 # Code Archaeologist
 
 Select some lines in VS Code and ask **"Why is this here?"**. Code Archaeologist shows
-how those lines evolved, commit by commit, so you can see what changed, when and why, with a
+how those lines evolved, commit by commit, so you can see what changed, when and why, with
 cited warning flags and a warning score near the top.
 
 ## Contents
@@ -24,8 +24,8 @@ cited warning flags and a warning score near the top.
 
 The panel on Angular's URL sanitizer (`url_sanitizer.ts` lines 38-48, the [demo snippet](#demo-snippet)),
 on the latest commit: the 2026 revert of a stricter `data:` and `vbscript:` check. The file and
-commit count stay pinned at the top, with the verdict and its cited reasons under them; clicking the
-verdict's header row folds the reasons away. On the line under the slider, **View all 18 commits** opens
+commit count stay pinned at the top, with the warning score, its flags and the cited reasons under
+them; clicking the score's row folds the flags and reasons away. On the line under the slider, **View all 18 commits** opens
 a list of every commit to jump to, with the diff option and key hints on the right. The commit
 card puts the author and date beside how long after the previous change it came, links the
 commit, its pull request and the file at that commit on one line, then the AI note and the diff
@@ -35,7 +35,7 @@ Here the PR dropdown is open because the note rests on the reviewer's comment on
 The GitHub evidence comes from the test fixture in `packages/core/test/fixtures/github.ts`, abridged
 from the public pull requests.
 
-![The Code Archaeologist panel: pinned file header, a high-risk verdict with cited reasons, the commit timeline, and the revert commit's author and date, links, note, diff and an open pull request dropdown](docs/panel.png)
+![The Code Archaeologist panel: pinned file header, a warning score of 9/10 with its flags and cited reasons, the commit timeline, and the revert commit's author and date, links, note, diff and an open pull request dropdown](docs/panel.png)
 
 The settings screen (**Code Archaeologist: Open settings screen**), with the default Gemini provider, a
 saved key and GitHub token, and Jira Cloud set up with a bot's comments ignored and **Test connection** passing. Keys, tokens and

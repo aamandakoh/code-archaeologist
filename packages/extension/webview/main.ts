@@ -1,4 +1,4 @@
-import type { FlagKind, JiraTicket, LinkedIssue, Review, Step, Story, Timeline } from '@code-archaeologist/core/src/types.js';
+import type { FlagKind, JiraTicket, LinkedIssue, Review, Step, Timeline } from '@code-archaeologist/core/src/types.js';
 import type { AiState, FromWebview, ToWebview } from '../src/messages';
 
 /** `showRemoved` is on unless turned off. */
