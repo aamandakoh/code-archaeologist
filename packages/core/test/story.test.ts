@@ -42,6 +42,7 @@ const answer = (overrides: object = {}) =>
         { kind: 'Reverted', text: 'That fix was reverted (commit:fc9b2d6).', citations: ['fc9b2d6'] },
         { kind: 'borrowed', text: 'Made up.', citations: ['pr:1'] },
         { kind: 'vibes', text: 'Not a kind.', citations: ['commit:b35fa73'] },
+        { kind: 'constructor', text: 'Not a kind either.', citations: ['commit:b35fa73'] },
       ],
       reasons: [
         { text: 'A security fix (commit:e96936a57fe) was reverted, see pr:49659.', citations: ['fc9b2d64e32b', '#49659'] },

@@ -324,7 +324,7 @@ export function parseStory(text: string, timeline: Timeline, prompt: StoryPrompt
   const flags: Story['verdict']['flags'] = [];
   for (const flag of out.verdict.flags) {
     const kind = flag.kind.trim().toLowerCase() as FlagKind;
-    if (!(kind in FLAG_WEIGHTS) || !flag.text.trim()) continue;
+    if (!Object.hasOwn(FLAG_WEIGHTS, kind) || !flag.text.trim()) continue;
     const { citations, flagged } = check(flag.citations);
     if (!flagged) flags.push({ kind, text: prose(flag.text, mr), citations });
   }
