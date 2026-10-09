@@ -32,9 +32,11 @@ export async function addGitHubContext(timeline: Timeline, options: GitHubOption
 /** A link from a commit or PR to an issue it fixes or a PR it reverts. */
 export type ForgeRef = {
   number: number;
-  relation: 'fixes' | 'reverts';
+  relation: 'fixes' | 'reverts' | 'mentions';
   /** Set where issues and PRs are numbered apart (GitLab). GitHub says which when the issue is read. */
   kind?: 'issue' | 'pr';
+  /** Another project on the same host, for a GitLab "group/tracker#12". */
+  project?: string;
 };
 
 /** What a code host answers. GitHub and GitLab each implement it; the steps below are shared. */
@@ -48,7 +50,7 @@ export interface Forge {
   prForCommit(sha: string): Promise<number | undefined>;
   pullRequest(n: number, file: string): Promise<PullRequest | undefined>;
   linkedRefs(text: string, shaToPr: (sha: string) => number | undefined): ForgeRef[];
-  issue(n: number, kind?: 'issue' | 'pr'): Promise<{ issue: LinkedIssue; discussion: Review[] } | undefined>;
+  issue(n: number, kind?: 'issue' | 'pr', project?: string): Promise<{ issue: LinkedIssue; discussion: Review[] } | undefined>;
 }
 
 /** The shared steps behind addGitHubContext and addGitLabContext. */
@@ -60,7 +62,7 @@ export async function addForgeContext(
 ): Promise<Timeline> {
   const steps: Step[] = timeline.steps.map((s) => ({ ...s, pr: undefined, reviews: [], issues: [] }));
   const context: GitHubContext = { token: Boolean(options.token), prs: 0, reviews: 0, issues: 0, ...(source && { source }) };
-  const refKey = (ref: { number: number; kind?: string }) => `${ref.kind ?? ''}:${ref.number}`;
+  const refKey = (ref: { number: number; kind?: string; project?: string }) => `${ref.kind ?? ''}:${ref.project ?? ''}#${ref.number}`;
 
   try {
     await api.check?.();
@@ -90,13 +92,13 @@ export async function addForgeContext(
     for (const step of steps) {
       const own = prOf.get(step.commit.sha);
       const found = api.linkedRefs(`${step.commit.message}\n${prs.get(own ?? -1)?.body ?? ''}`, shaToPr);
-      links.set(step, found.filter((l) => l.number !== own || l.kind === 'issue'));
+      links.set(step, found.filter((l) => l.number !== own || l.kind === 'issue' || l.project !== undefined));
     }
     const wanted = [...new Map([...links.values()].flat().map((l) => [refKey(l), l])).values()];
     if (wanted.length > 0) options.onProgress?.(`Reading ${wanted.length} linked issue${wanted.length === 1 ? '' : 's'}`);
     const issues = new Map<string, { issue: LinkedIssue; discussion: Review[] }>();
     await mapLimit(wanted, api.concurrency, async (ref) => {
-      const found = await api.issue(ref.number, ref.kind);
+      const found = await api.issue(ref.number, ref.kind, ref.project);
       if (found) issues.set(refKey(ref), found);
     });
 
@@ -132,7 +134,7 @@ export async function addForgeContext(
 
   context.prs = new Set(steps.flatMap((s) => (s.pr ? [s.pr.number] : []))).size;
   context.reviews = steps.reduce((n, s) => n + s.reviews.length, 0);
-  context.issues = new Set(steps.flatMap((s) => s.issues.map((i) => `${i.kind ?? ''}:${i.number}`))).size;
+  context.issues = new Set(steps.flatMap((s) => s.issues.map(refKey))).size;
   return { ...timeline, steps, context };
 }
 

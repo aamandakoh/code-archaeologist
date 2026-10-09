@@ -2,7 +2,7 @@
 
 Select some lines in VS Code and ask **"Why is this here?"**. Code Archaeologist shows
 how those lines evolved, commit by commit, so you can see what changed, when and why, with a
-cited "safe to change?" verdict near the top.
+cited warning flags and a warning score near the top.
 
 ## Contents
 
@@ -79,7 +79,7 @@ are kept in VS Code secret storage, and **Test connection** checks them before y
 | --- | --- | --- |
 | M0 | Workspaces, build, tests, extension skeleton | Done |
 | M1 | `git log -L` trace, noise filter, CLI, raw history panel | Done |
-| M2 | AI notes, summary and risk verdict (Gemini) | Done |
+| M2 | AI notes, summary and verdict (Gemini) | Done |
 | M3 | GitHub PRs, review comments and issues (and GitLab merge requests, Jira tickets) | Done |
 | M4 | Time-lapse UI polish | Done |
 | M5 | Demo recording | Next |
@@ -175,6 +175,19 @@ in `codeArchaeologist.gitlabUrl`, so a self-hosted GitLab needs that setting eve
 has "gitlab" in it. Until it is set, the panel says the token was held back, with a
 **Use my token on** button that sets it to that host.
 
+#### GitLab issue boards
+
+GitLab issues are read the way Jira tickets are, with no extra setup: the same GitLab URL and
+token are used. Any issue a commit message or its merge request names counts, not only the ones it
+closes: `#12` in the project itself, `tracker#12` in another project of the same group,
+`group/tracker#12`, or an issue URL on the same GitLab. So a board kept in its own project works
+too. Each issue is read once with its state, labels (the board's columns, e.g.
+`workflow::in review`), who opened it, its description and comments. System notes such as "moved
+to Done" and bot comments are left out. Issues go into the prompt as `issue:12`, or
+`issue:group/tracker#12` in another project. On the commit card each one is linked next to the
+merge request and has its own dropdown, as Jira tickets do. Comments need a GitLab token, even on
+gitlab.com.
+
 ### Jira
 
 `packages/core/src/jira.ts` finds Jira keys like `PAY-412` in each commit message and in the
@@ -206,9 +219,16 @@ Google AI Studio's free tier:
   description, up to 6 review comments, linked issues, Jira tickets with their last 4 comments and the diff of the traced lines (trimmed
   to 60 lines). Above 25 commits, or about 30k tokens, middle commits are
   sent as their subject line only.
-- **Output:** JSON with a one-sentence summary, a note per commit and a low/medium/high verdict
-  with 3 to 5 reasons and things to check, validated with zod.
-- **Citations:** every note and reason must cite ids from the input (`commit:b35fa73`,
+- **Output:** JSON with a one-sentence summary, a note per commit, warning flags, 3 to 5
+  reasons and things to check, validated with zod.
+- **Warning flags and score:** the model flags warning signs of five kinds, each citing its
+  evidence: `security` (a security fix or sign-off), `reverted` (a revert, or a change undone),
+  `breakage` (breakage reported against these lines), `borrowed` (code taken from another
+  library) and `tests` (tests added with a change). A flag that cites nothing in the evidence is
+  dropped, and reverts are also found from commit messages, so a missed one is still flagged. The
+  score is worked out in code, not by the model: each kind present counts once, security 3,
+  reverted 3, breakage 2, borrowed 1, tests 1, out of 10.
+- **Citations:** every note, flag and reason must cite ids from the input (`commit:b35fa73`,
   `pr:49659`, `jira:PAY-412`). Citations that match nothing are dropped, and a claim left with none is shown as
   **unverified**. When the evidence gives no reason, the note says "No reason recorded."
 

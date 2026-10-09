@@ -6,7 +6,7 @@ editor with every commit that touched those lines, oldest first:
 - Click a dot under the slider, drag the slider, or use ← → Home End. Stepping forward shows the
   lines that commit removed folding away, then the lines it added growing in.
 - Dots are coloured by kind of change
-  (feature, fix, revert, refactor, docs) with year labels, and the commits the verdict cites are
+  (feature, fix, revert, refactor, docs) with year labels, and the commits the flags and reasons cite are
   ringed. **View all N commits** under the slider opens a list of every commit to pick from.
 - Each step says who made the change, when, and how long after the previous change it came, links
   to the commit and to the file as it was at that commit, and keeps removed lines on screen as a
@@ -14,10 +14,12 @@ editor with every commit that touched those lines, oldest first:
 
 Whitespace-only, formatting-only and license-header commits are skipped and listed separately.
 
-Under the file name: a one-sentence summary and a Low / Medium / High risk verdict with cited
-reasons (click one to jump to the commit it cites; the reasons about the commit on screen light
-up as you scrub; click the verdict's header row to fold the card down to the verdict and summary) and things to check before
-you change it.
+Under the file name: a warning score out of 10, a one-sentence summary, warning flags (security,
+reverted, broke before, borrowed code, tests added) and cited reasons. The score adds up the kinds
+of flag found: security 3, reverted 3, broke before 2, borrowed code 1, tests added 1. Click a flag
+or reason to jump to the commit it cites; the ones about the commit on screen light up as you
+scrub; click the score's row to fold the card down to the score and summary. Below them are things
+to check before you change it.
 Each commit card starts with its links on one line: the commit, the pull request or merge request
 that merged it (found from the commit message or, when the message names none, by asking GitHub or
 GitLab), its Jira tickets, and the file at that commit. Then a short AI note with chips for the other

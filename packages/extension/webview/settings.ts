@@ -106,7 +106,7 @@ function render(): void {
       'section',
       {},
       el('h2', { text: 'AI model' }),
-      el('p', { class: 'muted', text: 'Writes the summary, the note on each commit and the risk verdict.' }),
+      el('p', { class: 'muted', text: 'Writes the summary, the note on each commit and the warning flags.' }),
       field('Quick setup', presets, el('p', { class: 'hint', attrs: { id: 'preset-hint' } })),
       field('API format', provider),
       field(

@@ -5,12 +5,14 @@ import { describe, expect, test, vi } from 'vitest';
 import {
   buildStoryPrompt,
   buildTimeline,
+  FLAG_WEIGHTS,
   geminiClient,
   LIMITS,
   openAiClient,
   parseHeaders,
   parseLineLog,
   parseStory,
+  scoreFlags,
   StoryCache,
   trimDiff,
   writeStory,
@@ -35,7 +37,12 @@ const answer = (overrides: object = {}) =>
       { commit: 'e96936a', note: 'Made up.', citations: ['pr:1', 'issue:42'] },
     ],
     verdict: {
-      level: 'HIGH',
+      flags: [
+        { kind: 'security', text: 'Dangerous data: URLs were blocked.', citations: ['commit:e96936a'] },
+        { kind: 'Reverted', text: 'That fix was reverted (commit:fc9b2d6).', citations: ['fc9b2d6'] },
+        { kind: 'borrowed', text: 'Made up.', citations: ['pr:1'] },
+        { kind: 'vibes', text: 'Not a kind.', citations: ['commit:b35fa73'] },
+      ],
       reasons: [
         { text: 'A security fix (commit:e96936a57fe) was reverted, see pr:49659.', citations: ['fc9b2d64e32b', '#49659'] },
         { text: 'Invented.', citations: ['commit:deadbee'] },
@@ -81,7 +88,6 @@ describe('parseStory', () => {
 
   test('keeps valid citations, normalises their form and orders notes by the timeline', () => {
     const story = parseStory(answer(), timeline, prompt, 'test-model');
-    expect(story.verdict.level).toBe('high');
     expect(story.steps.map((s) => s.commit.slice(0, 7))).toEqual(['b35fa73', 'e96936a', 'fc9b2d6']);
     expect(story.steps[0]).toEqual({
       commit: expect.stringMatching(/^b35fa73/),
@@ -90,6 +96,23 @@ describe('parseStory', () => {
     });
     expect(story.verdict.reasons[0]).toEqual({ text: 'A security fix (e96936a) was reverted, see #49659.', citations: ['commit:fc9b2d6', 'pr:49659'] });
     expect(story.model).toBe('test-model');
+  });
+
+  test('keeps flags that cite evidence, adds missed reverts and scores the kinds present', () => {
+    const { flags, score } = parseStory(answer(), timeline, prompt, 'm').verdict;
+    expect(flags.slice(0, 2)).toEqual([
+      { kind: 'security', text: 'Dangerous data: URLs were blocked.', citations: ['commit:e96936a'] },
+      { kind: 'reverted', text: 'That fix was reverted.', citations: ['commit:fc9b2d6'] },
+    ]);
+    // The other revert in the history is flagged from its commit message; the made-up and unknown flags are gone.
+    expect(flags.slice(2)).toEqual([{ kind: 'reverted', text: expect.stringMatching(/^Revert "fix\(core\): extend data: URL allowlist/), citations: [expect.stringMatching(/^commit:/)] }]);
+    expect(score).toBe(6);
+  });
+
+  test('scoreFlags counts each kind once', () => {
+    expect(scoreFlags([])).toBe(0);
+    expect(scoreFlags([{ kind: 'reverted' }, { kind: 'reverted' }, { kind: 'tests' }])).toBe(4);
+    expect(scoreFlags(Object.keys(FLAG_WEIGHTS).map((kind) => ({ kind: kind as keyof typeof FLAG_WEIGHTS })))).toBe(10);
   });
 
   test('drops citations that match no evidence and flags the claim', () => {
@@ -120,7 +143,7 @@ describe('parseStory', () => {
 
   test('rejects answers that are not JSON or have the wrong shape', () => {
     expect(() => parseStory('Sure! Here is', timeline, prompt, 'm')).toThrow(/valid JSON/);
-    expect(() => parseStory(answer({ verdict: { level: 'extreme', reasons: [], checks: [] } }), timeline, prompt, 'm')).toThrow(
+    expect(() => parseStory(answer({ verdict: { flags: [], reasons: [], checks: [] } }), timeline, prompt, 'm')).toThrow(
       /wrong shape/,
     );
   });

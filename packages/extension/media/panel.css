@@ -71,6 +71,13 @@ summary { cursor: pointer; color: var(--muted); }
 .level-medium .badge { color: #000; background: var(--vscode-editorWarning-foreground, #cca700); }
 .level-high .badge { color: #fff; background: var(--vscode-errorForeground, #f14c4c); }
 .summary-line { font-weight: 600; }
+.verdict-head .note { color: var(--muted); font-size: 0.9em; }
+.flags { list-style: none; padding-left: 0 !important; }
+.flag-kind {
+  display: inline-block; padding: 0 6px; border-radius: 4px; font-size: 0.85em; font-weight: 600;
+  border: 1px solid var(--vscode-editorWarning-foreground, #cca700);
+}
+.flags + .reasons { border-top: 1px solid var(--vscode-widget-border, transparent); padding-top: 4px; }
 .story ul { margin: 6px 0 0; padding-left: 18px; }
 .story li { margin: 2px 0; }
 .reasons li.jump { cursor: pointer; border-radius: 4px; }

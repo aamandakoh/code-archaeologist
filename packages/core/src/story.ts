@@ -1,11 +1,19 @@
 import { z } from 'zod';
-import type { LinkedIssue, Step, Story, Timeline } from './types.js';
-import { prFromMessage } from './github.js';
+import type { FlagKind, LinkedIssue, Step, Story, Timeline } from './types.js';
+import { prFromMessage, revertedShas } from './github.js';
 import { mrFromMessage } from './gitlab.js';
 import type { StoryCache } from './cache.js';
 
 /** Bump when the prompt or the Story shape changes, so cached stories are regenerated. */
-export const STORY_VERSION = 5;
+export const STORY_VERSION = 7;
+
+/** What each kind of warning flag adds to the score. Each kind counts once; they sum to 10. */
+export const FLAG_WEIGHTS: Record<FlagKind, number> = { security: 3, reverted: 3, breakage: 2, borrowed: 1, tests: 1 };
+
+/** The score for a set of flags: the weights of the kinds present, 0 to 10. */
+export function scoreFlags(flags: { kind: FlagKind }[]): number {
+  return [...new Set(flags.map((f) => f.kind))].reduce((sum, kind) => sum + FLAG_WEIGHTS[kind], 0);
+}
 
 /** Limits on what goes to the model. Roughly 4 characters per token, so about 30k tokens. */
 export const LIMITS = {
@@ -30,13 +38,13 @@ const SYSTEM = `You are Code Archaeologist. You explain how a piece of code evol
 Rules:
 - Explain what changed and why, from the evidence only: the commit message, its pull request description, review comments, PR discussion, linked issues and Jira tickets. If none of them gives a reason for a change, say "No reason recorded." and cite the commit. Never guess a motive.
 - For a revert, look for the reason in the review comments, especially those marked as posted on the reverted PR, and state that reason in the revert's own note. If there is none, a revert whose message only names the reverted commit has no recorded reason.
-- When the reason comes from a review comment, an issue or a Jira ticket, say who raised it or what broke in plain words, and cite that review, issue or ticket id. A Jira ticket's description and comments often hold the requirement or the bug report behind a change.
+- When the reason comes from a review comment, an issue or a Jira ticket, say who raised it or what broke in plain words, and cite that review, issue or ticket id. An issue's or Jira ticket's description and comments often hold the requirement or the bug report behind a change; an issue's labels show where it sat on the team's board.
 - Every note and every verdict reason cites at least one id exactly as written in the evidence, such as "commit:b35fa73", "pr:49659", "review:b35fa73-2", "issue:31462" or "jira:PAY-412". Cite the PR, review or issue the claim rests on, not just the commit. Never invent ids.
 - Write one note per commit, in the same order as the evidence, using its short hash in "commit". Commits marked [reduced] get a short note from their subject alone.
 - Notes are at most 2 sentences, plain words, no markdown. Ids go in "citations", never in the text: no "citations:" or id lists in a note or reason.
 - "summary" is one sentence on how these lines got to where they are today and what that means for someone about to change them. Do not just describe what the code does.
-- The verdict level is low, medium or high risk to change. Raise it for security fixes, security review sign-offs, reverts, a change made and then undone, tests added alongside a change, breakage reported in review, or code labelled as taken from another library.
-- Give 3 to 5 verdict reasons, most important first, each citing the specific commits it rests on. Name concrete events (a fix that was reverted, a behaviour that was loosened), not general statements.
+- "flags" lists the warning signs in the evidence, one per event, each with a "kind": "security" for a security fix or a security review sign-off, "reverted" for a revert or a change made and then undone, "breakage" for breakage or a bug reported against these lines in review, an issue or a ticket, "borrowed" for code labelled as taken from another library, "tests" for tests added alongside a change. Its "text" names the event in under 12 words and it cites the evidence. Only flag what the evidence shows; an empty list is fine.
+- Give 3 to 5 verdict reasons: what someone about to change these lines must know, most important first, each citing the specific commits it rests on. Name concrete events (a fix that was reverted, a behaviour that was loosened), not general statements.
 - Give 2 to 4 concrete "checks" to do before changing the code.`;
 
 /** JSON schema for Gemini's structured output. Validated again with zod below. */
@@ -59,7 +67,18 @@ const RESPONSE_SCHEMA = {
     verdict: {
       type: 'object',
       properties: {
-        level: { type: 'string', enum: ['low', 'medium', 'high'] },
+        flags: {
+          type: 'array',
+          items: {
+            type: 'object',
+            properties: {
+              kind: { type: 'string', enum: Object.keys(FLAG_WEIGHTS) },
+              text: { type: 'string' },
+              citations: { type: 'array', items: { type: 'string' } },
+            },
+            required: ['kind', 'text', 'citations'],
+          },
+        },
         reasons: {
           type: 'array',
           items: {
@@ -70,7 +89,7 @@ const RESPONSE_SCHEMA = {
         },
         checks: { type: 'array', items: { type: 'string' } },
       },
-      required: ['level', 'reasons', 'checks'],
+      required: ['flags', 'reasons', 'checks'],
     },
   },
   required: ['summary', 'steps', 'verdict'],
@@ -80,7 +99,8 @@ const ModelOutput = z.object({
   summary: z.string().min(1),
   steps: z.array(z.object({ commit: z.string(), note: z.string(), citations: z.array(z.string()).default([]) })),
   verdict: z.object({
-    level: z.preprocess((v) => (typeof v === 'string' ? v.toLowerCase() : v), z.enum(['low', 'medium', 'high'])),
+    // A flag of a kind we don't know is dropped later rather than failing the whole story.
+    flags: z.array(z.object({ kind: z.string(), text: z.string().default(''), citations: z.array(z.string()).default([]) })).default([]),
     reasons: z.array(z.object({ text: z.string(), citations: z.array(z.string()).default([]) })).min(1),
     checks: z.array(z.string()).default([]),
   }),
@@ -158,9 +178,21 @@ function renderFull(step: Step, limits: typeof LIMITS): string {
     out.push(`Review review:${short(c.sha)}-${i + 1} by ${review.author}${where ? ` (${where})` : ''}: ${oneLine(clip(review.body.trim(), limits.reviewChars))}`);
   });
   for (const issue of step.issues) {
-    const verb = issue.relation === 'reverts' ? 'Reverts' : issue.kind === 'pr' ? 'Linked PR' : 'Fixes issue';
-    out.push(`${verb} ${issueId(issue)}: ${issue.title}`);
-    if (issue.body) out.push(`  ${oneLine(clip(issue.body, limits.issueBodyChars))}`);
+    const verb = issue.relation === 'reverts' ? 'Reverts' : issue.kind === 'pr' ? 'Linked PR' : issue.relation === 'mentions' ? 'Mentions issue' : 'Fixes issue';
+    const about = [
+      issue.state,
+      issue.labels?.length && `labels ${issue.labels.join(', ')}`,
+      issue.author && `opened by ${issue.author}`,
+      issue.date?.slice(0, 10),
+    ]
+      .filter(Boolean)
+      .join(', ');
+    out.push(`${verb} ${issueId(issue)}${about ? ` (${about})` : ''}: ${issue.title}`);
+    // A GitLab board issue, read with its comments, often holds the requirement or bug report, as a Jira ticket does.
+    if (issue.body) out.push(`  ${issue.comments ? 'Description: ' : ''}${oneLine(clip(issue.body, issue.comments ? limits.ticketBodyChars : limits.issueBodyChars))}`);
+    for (const comment of (issue.comments ?? []).slice(-limits.ticketCommentsPerStep)) {
+      out.push(`  Comment by ${comment.author}${comment.date ? ` (${comment.date.slice(0, 10)})` : ''}: ${oneLine(clip(comment.body.trim(), limits.ticketCommentChars))}`);
+    }
   }
   for (const ticket of step.tickets ?? []) {
     const about = [ticket.type, ticket.status, ticket.reporter && `reported by ${ticket.reporter}`, ticket.date?.slice(0, 10)].filter(Boolean).join(', ');
@@ -178,8 +210,12 @@ function renderReduced(step: Step): string {
   const c = step.commit;
   const subject = c.message.split('\n')[0] ?? '';
   const pr = step.pr ? ` (PR pr:${step.pr.number}: ${step.pr.title})` : '';
+  const issues = step.issues
+    .filter((i) => i.comments)
+    .map((i) => `\nIssue ${issueId(i)}: ${i.title}`)
+    .join('');
   const tickets = (step.tickets ?? []).map((t) => `\nJira ticket jira:${t.key}: ${t.title}`).join('');
-  return `\n## commit:${short(c.sha)} · ${c.date.slice(0, 10)} · ${c.author} [reduced]\n${subject}${pr}${tickets}`;
+  return `\n## commit:${short(c.sha)} · ${c.date.slice(0, 10)} · ${c.author} [reduced]\n${subject}${pr}${issues}${tickets}`;
 }
 
 /** Ids the model may cite for one step. PR and issue numbers written in the message count too. */
@@ -204,9 +240,9 @@ function evidenceIds(step: Step, gitlab = false): string[] {
   return ids;
 }
 
-/** PRs are cited as "pr:N", issues as "issue:N". */
+/** PRs are cited as "pr:N", issues as "issue:N", or "issue:group/tracker#N" in another GitLab project. */
 function issueId(issue: LinkedIssue): string {
-  return `${issue.kind === 'pr' ? 'pr' : 'issue'}:${issue.number}`;
+  return `${issue.kind === 'pr' ? 'pr' : 'issue'}:${issue.project ? `${issue.project}#` : ''}${issue.number}`;
 }
 
 function oneLine(text: string): string {
@@ -284,11 +320,30 @@ export function parseStory(text: string, timeline: Timeline, prompt: StoryPrompt
     notes.set(sha, { commit: sha, note: prose(step.note, mr), citations, ...(flagged && { flagged }) });
   }
 
+  // Flags count toward the score, so one that cites nothing in the evidence is dropped, not just marked.
+  const flags: Story['verdict']['flags'] = [];
+  for (const flag of out.verdict.flags) {
+    const kind = flag.kind.trim().toLowerCase() as FlagKind;
+    if (!(kind in FLAG_WEIGHTS) || !flag.text.trim()) continue;
+    const { citations, flagged } = check(flag.citations);
+    if (!flagged) flags.push({ kind, text: prose(flag.text, mr), citations });
+  }
+  // Reverts are plain in the history, so they are flagged even when the model missed them.
+  for (const step of timeline.steps) {
+    const subject = step.commit.message.split('\n')[0] ?? '';
+    const reverts = /^revert\b/i.test(subject) || revertedShas(step.commit.message).length > 0 || step.issues.some((i) => i.relation === 'reverts');
+    const id = `commit:${short(step.commit.sha)}`;
+    if (reverts && !flags.some((f) => f.kind === 'reverted' && f.citations.includes(id))) {
+      flags.push({ kind: 'reverted', text: subject, citations: [id] });
+    }
+  }
+
   return {
     summary: out.summary.trim(),
     steps: shas.flatMap((sha) => notes.get(sha) ?? []),
     verdict: {
-      level: out.verdict.level,
+      score: scoreFlags(flags),
+      flags,
       reasons: out.verdict.reasons.slice(0, 5).map((r) => {
         const { citations, flagged } = check(r.citations);
         return { text: prose(r.text, mr), citations, ...(flagged && { flagged }) };
@@ -592,10 +647,11 @@ function prose(text: string, mr = false): string {
     // "Citations: [pr:3]" at the end, or a bare "(commit:ab12, review:9)" ending the text. An id
     // mid-sentence stays, as a readable reference.
     .replace(/\s*[([]\s*(?:citations?|sources?|cites?)\s*:[^)\]]*[)\]]/gi, '')
-    .replace(/\s*\b(?:citations?|sources?)\s*:\s*\[?\s*(?:(?:commit|pr|issue|review|jira):[\w-]+[\s,;]*)+\]?\s*\.?\s*$/i, '')
-    .replace(/\s*[([]\s*(?:(?:commit|pr|issue|review|jira):[\w-]+[\s,;]*)+[)\]](?=\s*[.!?]?\s*$)/gi, '')
+    .replace(/\s*\b(?:citations?|sources?)\s*:\s*\[?\s*(?:(?:commit|pr|issue|review|jira):[\w./#-]+[\s,;]*)+\]?\s*\.?\s*$/i, '')
+    .replace(/\s*[([]\s*(?:(?:commit|pr|issue|review|jira):[\w./#-]+[\s,;]*)+[)\]](?=\s*[.!?]?\s*$)/gi, '')
     .replace(/\s+([.,;])/g, '$1')
     .replace(/\bcommit:([0-9a-f]{7,40})\b/gi, (_, sha: string) => short(sha))
+    .replace(/\bissue:([\w.-]+(?:\/[\w.-]+)*#\d+)\b/gi, '$1')
     .replace(/\bpr:(\d+)\b/gi, mr ? '!$1' : '#$1')
     .replace(/\bissue:(\d+)\b/gi, '#$1')
     .replace(/\bjira:([A-Z][A-Z\d_]*-\d+)\b/gi, (_, key: string) => key.toUpperCase());

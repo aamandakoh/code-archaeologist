@@ -1,4 +1,4 @@
-import type { JiraTicket, Review, Step, Story, Timeline } from '@code-archaeologist/core/src/types.js';
+import type { FlagKind, JiraTicket, LinkedIssue, Review, Step, Story, Timeline } from '@code-archaeologist/core/src/types.js';
 import type { AiState, FromWebview, ToWebview } from '../src/messages';
 
 /** `showRemoved` is on unless turned off. */
@@ -306,14 +306,16 @@ function renderStep(t: Timeline, step: Step, animate: boolean): HTMLElement {
   const gap = previous ? elapsed(previous.commit.date, commit.date) : 'first version';
 
   const fileUrl = fileAtCommit(t, step);
-  // Every link for the commit on one line: the commit, the PR or MR that merged it, its Jira tickets, the file then.
+  // Every link for the commit on one line: the commit, the PR or MR that merged it, its board issues and Jira tickets, the file then.
   const tickets = step.tickets ?? [];
+  const boardIssues = step.issues.filter(onBoard);
   const links = el(
     'p',
     { class: 'meta links' },
     commitLink(t, commit.sha),
     step.pr && ' · ',
     step.pr && el('a', { class: 'pr', text: `${refLabel(t, 'pr', step.pr.number)} ${step.pr.title}`, attrs: { href: step.pr.url, title: `Open the ${forge(t).pr}` } }),
+    ...boardIssues.flatMap((issue) => [' · ', el('a', { class: 'ticket', text: issueLabel(t, issue), attrs: { href: issue.url, title: issueTitle(issue) } })]),
     ...tickets.flatMap((ticket) => [' · ', el('a', { class: 'ticket', text: ticket.key, attrs: { href: ticket.url, title: ticketTitle(ticket) } })]),
     fileUrl && ' · ',
     fileUrl && el('a', { text: 'file at this commit', attrs: { href: fileUrl } }),
@@ -338,6 +340,7 @@ function renderStep(t: Timeline, step: Step, animate: boolean): HTMLElement {
       { class: 'drops' },
       body && el('details', { class: 'body' }, el('summary', { text: 'Full commit message' }), el('pre', { text: body })),
       renderEvidence(t, step),
+      ...boardIssues.map((issue) => renderIssue(t, issue)),
       ...tickets.map(renderTicket),
     ),
   );
@@ -438,11 +441,11 @@ function kindOf(step: Step): Kind {
   }
 }
 
-/** Steps that a verdict reason cites, to mark them on the track. */
+/** Steps that a warning flag or verdict reason cites, to mark them on the track. */
 function citedSteps(t: Timeline): Set<number> {
   const out = new Set<number>();
   if (ai.status !== 'ready') return out;
-  for (const reason of t.story?.verdict.reasons ?? []) {
+  for (const reason of [...(t.story?.verdict.flags ?? []), ...(t.story?.verdict.reasons ?? [])]) {
     const i = stepForCitations(t, reason.citations);
     if (i !== undefined) out.add(i);
   }
@@ -471,15 +474,62 @@ function refLabel(t: Timeline, kind: string | undefined, n: number | string): st
   return `${kind === 'pr' ? forge(t).sign : '#'}${n}`;
 }
 
+/** "#12", or "group/tracker#12" for an issue in another GitLab project. */
+function issueLabel(t: Timeline, issue: LinkedIssue): string {
+  return issue.project ? `${issue.project}#${issue.number}` : refLabel(t, issue.kind, issue.number);
+}
+
+/** How the story cites an issue: "issue:12", "pr:12", or "issue:group/tracker#12". */
+function issueCitation(issue: LinkedIssue): string {
+  return `${issue.kind === 'pr' ? 'pr' : 'issue'}:${issue.project ? `${issue.project}#` : ''}${issue.number}`;
+}
+
+/** A GitLab issue read with its comments, labels and state: shown in its own dropdown, like a Jira ticket. */
+function onBoard(issue: LinkedIssue): boolean {
+  return issue.comments !== undefined && issue.kind !== 'pr';
+}
+
 function sameTrace(a: Timeline, b: Timeline): boolean {
   return a.file === b.file && a.head === b.head && a.range[0] === b.range[0] && a.range[1] === b.range[1];
 }
 
-const LEVELS: Record<Story['verdict']['level'], string> = {
-  low: 'Low risk to change',
-  medium: 'Medium risk to change',
-  high: 'High risk to change',
+const FLAG_LABELS: Record<FlagKind, string> = {
+  security: 'Security',
+  reverted: 'Reverted',
+  breakage: 'Broke before',
+  borrowed: 'Borrowed code',
+  tests: 'Tests added',
 };
+
+/** Colour band for the warning score: 0-2 calm, 3-5 caution, 6-10 warning. */
+function scoreBand(score: number): 'low' | 'medium' | 'high' {
+  return score >= 6 ? 'high' : score >= 3 ? 'medium' : 'low';
+}
+
+/** A flag or reason: its text and citation chips; clicking it shows the commit it cites. */
+function claimItem(t: Timeline, claim: { text: string; citations: string[]; flagged?: boolean }, tag?: string): HTMLElement {
+  const target = stepForCitations(t, claim.citations);
+  const item = el(
+    'li',
+    target === undefined ? {} : { class: 'jump', attrs: { tabindex: '0', title: 'Show the commit this cites', 'data-step': String(target) } },
+    tag ? el('span', { class: 'flag-kind', text: tag }) : undefined,
+    tag ? ' ' : undefined,
+    el('span', { text: claim.text }),
+    ' ',
+    citationChips(t, claim),
+  );
+  if (target !== undefined) {
+    item.addEventListener('click', (e) => {
+      if ((e.target as HTMLElement).closest('a')) return; // chips open GitHub or GitLab
+      select(target);
+      document.getElementById('step')?.scrollIntoView({ block: 'nearest', behavior: reducedMotion.matches ? 'auto' : 'smooth' });
+    });
+    item.addEventListener('keydown', (e) => {
+      if (e.key === 'Enter') select(target);
+    });
+  }
+  return item;
+}
 
 function renderStory(t: Timeline, state: AiState): HTMLElement {
   const section = (cls: string, ...children: (Node | string | false | undefined)[]) =>
@@ -508,7 +558,7 @@ function renderStory(t: Timeline, state: AiState): HTMLElement {
       case 'no-key':
         return section(
           'pending',
-          el('p', { text: 'Add an LLM API key to get a summary, a note on every commit and a "safe to change?" verdict. The raw history is below.' }),
+          el('p', { text: 'Add an LLM API key to get a summary, a note on every commit and warning flags with a score. The raw history is below.' }),
           button('Set up AI model', { type: 'open-settings' }),
           githubNotice(t),
         );
@@ -524,31 +574,9 @@ function renderStory(t: Timeline, state: AiState): HTMLElement {
     }
   }
 
-  const reasons = el(
-    'ul',
-    { class: 'reasons' },
-    ...story.verdict.reasons.map((reason) => {
-      const target = stepForCitations(t, reason.citations);
-      const item = el(
-        'li',
-        target === undefined ? {} : { class: 'jump', attrs: { tabindex: '0', title: 'Show the commit this cites', 'data-step': String(target) } },
-        el('span', { text: reason.text }),
-        ' ',
-        citationChips(t, reason),
-      );
-      if (target !== undefined) {
-        item.addEventListener('click', (e) => {
-          if ((e.target as HTMLElement).closest('a')) return; // chips open GitHub or GitLab
-          select(target);
-          document.getElementById('step')?.scrollIntoView({ block: 'nearest', behavior: reducedMotion.matches ? 'auto' : 'smooth' });
-        });
-        item.addEventListener('keydown', (e) => {
-          if (e.key === 'Enter') select(target);
-        });
-      }
-      return item;
-    }),
-  );
+  const { score, flags } = story.verdict;
+  const flagList = flags.length > 0 && el('ul', { class: 'reasons flags' }, ...flags.map((flag) => claimItem(t, flag, FLAG_LABELS[flag.kind])));
+  const reasons = el('ul', { class: 'reasons' }, ...story.verdict.reasons.map((reason) => claimItem(t, reason)));
 
   const checks =
     story.verdict.checks.length > 0 &&
@@ -572,9 +600,14 @@ function renderStory(t: Timeline, state: AiState): HTMLElement {
   const chevron = el('span', { class: 'chevron', text: view.storyCollapsed ? '▸' : '▾', attrs: { 'aria-hidden': 'true' } });
   const head = el(
     'div',
-    { class: 'verdict-head', attrs: { role: 'button', tabindex: '0', 'aria-expanded': String(!view.storyCollapsed), title: 'Show or hide the reasons' } },
+    { class: 'verdict-head', attrs: { role: 'button', tabindex: '0', 'aria-expanded': String(!view.storyCollapsed), title: 'Show or hide the flags and reasons' } },
     chevron,
-    el('span', { class: 'badge', text: LEVELS[story.verdict.level] }),
+    el('span', {
+      class: 'badge',
+      text: `Warning score ${score}/10`,
+      attrs: { title: 'Adds up the warning signs found, each kind once: security 3, reverted 3, broke before 2, borrowed code 1, tests added 1.' },
+    }),
+    flags.length === 0 ? el('span', { class: 'note', text: 'No warning signs found' }) : undefined,
   );
   const toggle = () => {
     saveView({ storyCollapsed: !view.storyCollapsed });
@@ -590,9 +623,10 @@ function renderStory(t: Timeline, state: AiState): HTMLElement {
   });
 
   return section(
-    `ready level-${story.verdict.level}${view.storyCollapsed ? ' collapsed' : ''}`,
+    `ready level-${scoreBand(score)}${view.storyCollapsed ? ' collapsed' : ''}`,
     head,
     el('p', { class: 'summary-line', text: story.summary }),
+    flagList,
     reasons,
     checks,
     el('p', { class: 'fineprint', text: footer }),
@@ -641,25 +675,27 @@ function hostOf(url: string): string {
 /** "MR !31 description, 1 linked issue and 2 comments": the forge's dropdown, holding what the link line leaves out. */
 function renderEvidence(t: Timeline, step: Step): HTMLElement | undefined {
   const description = step.pr?.body.trim();
-  if (!description && step.issues.length === 0 && step.reviews.length === 0) return undefined;
+  // Board issues get their own dropdown, after this one.
+  const linked = step.issues.filter((issue) => !onBoard(issue));
+  if (!description && linked.length === 0 && step.reviews.length === 0) return undefined;
   const { name } = forge(t);
   const parts = [
     description && 'description',
-    step.issues.length > 0 && plural(step.issues.length, 'linked issue'),
+    linked.length > 0 && plural(linked.length, 'linked issue'),
     step.reviews.length > 0 && plural(step.reviews.length, 'comment'),
   ].filter((x): x is string => Boolean(x));
   const what = parts.length > 1 ? `${parts.slice(0, -1).join(', ')} and ${parts.at(-1)}` : parts[0]!;
   const label = step.pr ? `${forge(t).pr === 'merge request' ? 'MR' : 'PR'} ${refLabel(t, 'pr', step.pr.number)} ${what}` : `${what[0]!.toUpperCase()}${what.slice(1)} from ${name}`;
   const issues =
-    step.issues.length > 0 &&
+    linked.length > 0 &&
     el(
       'p',
       { class: 'evidence-links' },
-      ...step.issues.map((issue) =>
+      ...linked.map((issue) =>
         el(
           'a',
           { class: 'issue', attrs: { href: issue.url } },
-          el('span', { class: 'chip', text: `${issue.relation === 'reverts' ? 'reverts' : 'fixes'} ${refLabel(t, issue.kind, issue.number)}` }),
+          el('span', { class: 'chip', text: `${issue.relation ?? 'fixes'} ${issueLabel(t, issue)}` }),
           ` ${issue.title}`,
         ),
       ),
@@ -699,6 +735,35 @@ function renderTicket(ticket: JiraTicket): HTMLElement {
     ticket.body && el('pre', { class: 'description', text: ticket.body }),
     ticket.comments.length > 0 && el('ol', {}, ...ticket.comments.map((c) => comment(c))),
   );
+}
+
+/** "Issue #12 description and 3 comments", holding where it sits on the board (state, labels), its description and comments. */
+function renderIssue(t: Timeline, issue: LinkedIssue): HTMLElement {
+  const comments = issue.comments ?? [];
+  const parts = [issue.body && 'description', comments.length > 0 && plural(comments.length, 'comment')].filter((x): x is string => Boolean(x));
+  const about = [
+    issue.relation === 'fixes' ? 'closed by this change' : undefined,
+    issue.state,
+    issue.author && `opened by ${issue.author}`,
+    issue.date && shortDate(issue.date),
+  ]
+    .filter(Boolean)
+    .join(' · ');
+  return el(
+    'details',
+    { class: 'reviews ticket', attrs: { 'data-issue': issueCitation(issue) } },
+    el('summary', { text: `Issue ${issueLabel(t, issue)}${parts.length ? ` ${parts.join(' and ')}` : ''}` }),
+    el('p', { class: 'meta ticket-about' }, el('a', { text: issue.title, attrs: { href: issue.url } }), about ? ` · ${about}` : ''),
+    issue.labels && issue.labels.length > 0 && el('p', { class: 'evidence-links' }, ...issue.labels.map((label) => el('span', { class: 'chip', text: label }))),
+    issue.body && el('pre', { class: 'description', text: issue.body }),
+    comments.length > 0 && el('ol', {}, ...comments.map((c) => comment(c))),
+  );
+}
+
+/** "Rounding is off for EUR (opened, workflow::doing)", for the issue link's tooltip. */
+function issueTitle(issue: LinkedIssue): string {
+  const about = [issue.state, ...(issue.labels ?? [])].filter(Boolean).join(', ');
+  return `${issue.title}${about ? ` (${about})` : ''}`;
 }
 
 function comment(review: Review, id?: string, extra: string[] = []): HTMLElement {
@@ -755,6 +820,7 @@ function citationLabel(t: Timeline, citation: string): string {
     return author ? `${author}'s comment` : 'comment';
   }
   if (kind === 'jira') return ref;
+  if (kind === 'issue' && ref.includes('#')) return ref; // "group/tracker#12", in another GitLab project
   return kind === 'pr' || kind === 'issue' ? refLabel(t, kind, ref) : ref;
 }
 
@@ -765,6 +831,8 @@ function citationUrl(t: Timeline, citation: string): string | undefined {
     return t.steps.find((s) => s.commit.sha.startsWith(sha ?? ''))?.reviews[Number(n) - 1]?.url;
   }
   if (kind === 'jira') return t.steps.flatMap((s) => s.tickets ?? []).find((ticket) => ticket.key === ref)?.url;
+  const issue = t.steps.flatMap((s) => s.issues).find((i) => issueCitation(i) === citation);
+  if (issue) return issue.url;
   const repo = forge(t).web;
   if (!repo) return undefined;
   const sep = t.gitlab ? '/-' : '';
@@ -788,7 +856,7 @@ function stepForCitations(t: Timeline, citations: string[]): number | undefined 
           ? Boolean(s.tickets?.some((ticket) => ticket.key === ref))
           : (kind === 'pr' && s.pr?.number === Number(ref)) ||
           new RegExp(`${kind === 'pr' ? forge(t).sign : '#'}${ref}\\b`).test(s.commit.message) ||
-          s.issues.some((i) => i.number === Number(ref) && (!t.gitlab || (i.kind ?? 'issue') === kind)),
+          s.issues.some((i) => issueCitation(i) === citation || (!i.project && i.number === Number(ref) && (!t.gitlab || (i.kind ?? 'issue') === kind))),
     );
     if (index >= 0) return index;
   }

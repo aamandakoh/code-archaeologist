@@ -146,7 +146,7 @@ export function activate(context: vscode.ExtensionContext): void {
       });
       if (controller.signal.aborted) return;
       const flagged = story.steps.filter((s) => s.flagged).length + story.verdict.reasons.filter((r) => r.flagged).length;
-      output.appendLine(`Story for ${timeline.file}: ${story.verdict.level} risk, ${story.steps.length} notes, ${flagged} unverified claims (${story.model})`);
+      output.appendLine(`Story for ${timeline.file}: warning score ${story.verdict.score}/10 (${story.verdict.flags.map((f) => f.kind).join(', ') || 'no flags'}), ${story.steps.length} notes, ${flagged} unverified claims (${story.model})`);
       post({ status: 'ready' }, story);
     } catch (error) {
       if (controller.signal.aborted) return;

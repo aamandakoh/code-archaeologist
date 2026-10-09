@@ -128,7 +128,7 @@ describe('addJiraContext', () => {
       JSON.stringify({
         summary: 's',
         steps: [{ commit: 'aaaaaaa', note: 'Rounds per line, as jira:PAY-412 asks.', citations: ['PAY-412'] }],
-        verdict: { level: 'low', reasons: [{ text: 'r', citations: ['jira:pay-412', 'jira:NOPE-1'] }], checks: [] },
+        verdict: { flags: [], reasons: [{ text: 'r', citations: ['jira:pay-412', 'jira:NOPE-1'] }], checks: [] },
       }),
       out,
       prompt,

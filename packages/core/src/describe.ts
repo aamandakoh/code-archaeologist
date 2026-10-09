@@ -22,8 +22,9 @@ export function describeTimeline(timeline: Timeline, options: { snapshots?: bool
     out.push(`    +${step.addedLines.length} -${step.removedLines.length} lines, starts at line ${step.startLine}`);
     if (step.pr) out.push(`    ${timeline.gitlab ? `MR !${step.pr.number}` : `PR #${step.pr.number}`}: ${step.pr.title}${step.reviews.length ? ` (${step.reviews.length} comments)` : ''}`);
     for (const issue of step.issues) {
-      const ref = issue.kind === 'pr' && timeline.gitlab ? `!${issue.number}` : `#${issue.number}`;
-      out.push(`    ${issue.relation === 'reverts' ? 'reverts' : 'fixes'} ${ref}: ${issue.title}`);
+      const ref = issue.kind === 'pr' && timeline.gitlab ? `!${issue.number}` : `${issue.project ?? ''}#${issue.number}`;
+      const about = [issue.state, ...(issue.labels ?? []), issue.comments?.length && `${issue.comments.length} comments`].filter(Boolean).join(', ');
+      out.push(`    ${issue.relation ?? 'fixes'} ${ref}: ${issue.title}${about ? ` (${about})` : ''}`);
     }
     for (const ticket of step.tickets ?? []) {
       out.push(`    Jira ${ticket.key}: ${ticket.title}${ticket.status ? ` (${ticket.status})` : ''}`);
@@ -49,7 +50,10 @@ export function describeTimeline(timeline: Timeline, options: { snapshots?: bool
 
 /** Plain-text rendering of the summary and verdict. */
 export function describeStory(timeline: Timeline, story: Story): string {
-  const out = [story.summary, '', `Risk to change: ${story.verdict.level.toUpperCase()}`];
+  const { score, flags } = story.verdict;
+  const out = [story.summary, '', `Warning score: ${score}/10${flags.length === 0 ? ', no warning signs' : ''}`];
+  for (const flag of flags) out.push(`  ! ${flag.kind}: ${flag.text} ${cite(flag)}`);
+  if (story.verdict.reasons.length > 0) out.push('Before you change it:');
   for (const reason of story.verdict.reasons) out.push(`  - ${reason.text} ${cite(reason)}`);
   if (story.verdict.checks.length > 0) {
     out.push('Check before changing:');

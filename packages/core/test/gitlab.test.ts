@@ -43,6 +43,23 @@ test('gitlabLinkedRefs tells issues from merge requests', () => {
   ]);
 });
 
+test('gitlabLinkedRefs reads mentions and issues in other projects, closing words first', () => {
+  expect(
+    gitlabLinkedRefs(
+      'Round half up, see #9 and tracker#4\nCloses #9\nPart of platform/ops/board#2 and https://gitlab.example.com/platform/billing/api/-/issues/5\n' +
+        'Also https://gitlab.example.com/platform/ops/board/-/issues/3, platform/billing/api#6, &#12; and a.b/c#',
+      project,
+    ),
+  ).toEqual([
+    { number: 9, relation: 'fixes', kind: 'issue' },
+    { number: 4, relation: 'mentions', kind: 'issue', project: 'platform/billing/tracker' },
+    { number: 2, relation: 'mentions', kind: 'issue', project: 'platform/ops/board' },
+    { number: 5, relation: 'mentions', kind: 'issue' },
+    { number: 3, relation: 'mentions', kind: 'issue', project: 'platform/ops/board' },
+    { number: 6, relation: 'mentions', kind: 'issue' },
+  ]);
+});
+
 describe('addGitLabContext', () => {
   const commit = (sha: string, message: string) => ({ sha, date: '2026-01-01T00:00:00Z', author: 'a', message });
   const step = (sha: string, message: string) => ({
@@ -107,6 +124,60 @@ describe('addGitLabContext', () => {
     expect(revert!.pr?.number).toBe(6);
     expect(revert!.reviews[0]).toMatchObject({ body: 'This breaks invoices in EUR, revert it', on: 5 });
     expect(buildStoryPrompt(out).ids).toEqual(expect.arrayContaining(['pr:5', 'pr:6', 'issue:3']));
+  });
+
+  test('reads a board issue in another project with its labels and comments, into the prompt', async () => {
+    const board = 'https://gitlab.example.com/api/v4/projects/platform%2Fops%2Fboard';
+    const boardRoutes: Record<string, unknown> = {
+      '/issues/9': {
+        iid: 9,
+        title: 'EUR invoices are a cent short',
+        description: 'Finance found totals off by 0.01 on EUR invoices.',
+        web_url: 'https://gitlab.example.com/platform/ops/board/-/issues/9',
+        state: 'closed',
+        labels: ['bug', 'workflow::done'],
+        author: { username: 'finance-lead' },
+        created_at: '2025-12-01T09:00:00Z',
+      },
+      '/issues/9/notes?per_page=100&sort=asc': [
+        { id: 11, body: 'mentioned in commit aaaaaaa', system: true, author },
+        { id: 12, body: 'Must round half up, per the tax office.', author: { username: 'accountant' }, created_at: '2025-12-02T10:00:00Z' },
+        { id: 13, body: 'Moved to Done', author: { username: 'project_7_bot_abc' } },
+      ],
+    };
+    const fetch = (async (url: string) => {
+      const u = String(url);
+      const [table, route] = u.startsWith(board) ? [boardRoutes, u.slice(board.length)] : [routes, u.slice(base.length)];
+      return route in table ? new Response(JSON.stringify(table[route])) : new Response('{}', { status: 404 });
+    }) as typeof globalThis.fetch;
+    const withBoard: Timeline = {
+      ...timeline,
+      steps: [step('a'.repeat(40), 'Round half up\n\nFor platform/ops/board#9 (#404 is unrelated)'), timeline.steps[1]!],
+    };
+    const out = await addGitLabContext(withBoard, { token: 't', gitlabUrl: 'https://gitlab.example.com', fetch });
+
+    expect(out.steps[0]!.issues).toEqual([
+      {
+        number: 9,
+        title: 'EUR invoices are a cent short',
+        url: 'https://gitlab.example.com/platform/ops/board/-/issues/9',
+        kind: 'issue',
+        relation: 'mentions',
+        project: 'platform/ops/board',
+        state: 'closed',
+        labels: ['bug', 'workflow::done'],
+        author: 'finance-lead',
+        date: '2025-12-01T09:00:00Z',
+        body: 'Finance found totals off by 0.01 on EUR invoices.',
+        comments: [expect.objectContaining({ author: 'accountant', body: 'Must round half up, per the tax office.', url: 'https://gitlab.example.com/platform/ops/board/-/issues/9#note_12' })],
+      },
+    ]);
+    const prompt = buildStoryPrompt(out);
+    expect(prompt.ids).toContain('issue:platform/ops/board#9');
+    expect(prompt.user).toContain(
+      'Mentions issue issue:platform/ops/board#9 (closed, labels bug, workflow::done, opened by finance-lead, 2025-12-01): EUR invoices are a cent short',
+    );
+    expect(prompt.user).toContain('Comment by accountant (2025-12-02): Must round half up, per the tax office.');
   });
 
   test('keeps the token from a host that is neither gitlab.com nor gitlabUrl', async () => {

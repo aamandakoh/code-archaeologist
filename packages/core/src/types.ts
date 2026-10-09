@@ -109,8 +109,19 @@ export type LinkedIssue = {
   body?: string;
   /** "pr" for a pull request, such as the one a revert undid. */
   kind?: 'issue' | 'pr';
-  /** How the commit or PR refers to it. */
-  relation?: 'fixes' | 'reverts';
+  /** How the commit or PR refers to it: "mentions" for a GitLab "#12" without a closing word. */
+  relation?: 'fixes' | 'reverts' | 'mentions';
+  /** The GitLab project it is in, when not the timeline's own, e.g. "platform/tracker". Cited as "issue:platform/tracker#12". */
+  project?: string;
+  /** GitLab: "opened" or "closed". */
+  state?: string;
+  /** GitLab labels, which are also the issue board's columns, e.g. "workflow::in review". */
+  labels?: string[];
+  author?: string;
+  /** ISO 8601, when it was opened. */
+  date?: string;
+  /** GitLab issue comments, oldest first. Absent where they are not read (GitHub). */
+  comments?: Review[];
 };
 
 /** What milestone 3 found on GitHub or GitLab for a timeline. PRs are GitLab merge requests there. */
@@ -142,7 +153,10 @@ export type Story = {
   /** One note per step that got one, in timeline order. `commit` is the full SHA. */
   steps: { commit: string; note: string; citations: string[]; flagged?: boolean }[];
   verdict: {
-    level: 'low' | 'medium' | 'high';
+    /** 0-10: the weights of the flag kinds present, counted once each. Computed in code, not by the model. */
+    score: number;
+    /** Warning signs, each resting on at least one valid citation. Ones citing nothing are dropped. */
+    flags: { kind: FlagKind; text: string; citations: string[] }[];
     reasons: { text: string; citations: string[]; flagged?: boolean }[];
     checks: string[];
   };
@@ -151,6 +165,13 @@ export type Story = {
   /** Commits sent to the model as subject only, because the history was long. */
   reduced: number;
 };
+
+/**
+ * A warning sign in the history. security: a security fix or security review sign-off. reverted: a
+ * revert, or a change made and then undone. breakage: breakage reported against these lines.
+ * borrowed: code labelled as taken from another library. tests: tests added alongside a change.
+ */
+export type FlagKind = 'security' | 'reverted' | 'breakage' | 'borrowed' | 'tests';
 
 /**
  * Citations look like "commit:b35fa73", "pr:49659", "issue:123", "review:b35fa73-1" or "jira:PAY-412".

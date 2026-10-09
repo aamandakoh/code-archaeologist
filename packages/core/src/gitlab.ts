@@ -21,7 +21,7 @@ export type GitLabOptions = {
 };
 
 /** Per-MR limits on what is kept, before the prompt applies its own. */
-const KEEP = { bodyChars: 4_000, commentChars: 1_500, issueBodyChars: 800 };
+const KEEP = { bodyChars: 4_000, commentChars: 1_500, issueBodyChars: 800, boardIssueBodyChars: 2_000, issueComments: 20 };
 
 /**
  * The same as addGitHubContext for a project on gitlab.com or a self-hosted GitLab: each step's
@@ -68,8 +68,10 @@ export function mrFromMessage(message: string): number | undefined {
 }
 
 /**
- * Issues a commit or MR says it closes ("#12"), and merge requests it reverts ("!34"). GitLab
- * numbers the two apart, so each ref says which it is.
+ * Issues a commit or MR names: those it says it closes ("Closes #12"), then any other it mentions
+ * ("#12", "tracker#12", "group/tracker#12" or an issue URL), and merge requests it reverts ("!34").
+ * GitLab numbers issues and MRs apart, so each ref says which it is. An issue in another project
+ * on the same GitLab, such as a team's board project, has `project` set.
  */
 export function gitlabLinkedRefs(
   text: string,
@@ -78,16 +80,22 @@ export function gitlabLinkedRefs(
 ): ForgeRef[] {
   const clean = stripTemplate(text);
   const web = escape(`${project.url}/${project.project}/-/`);
-  const issue = `(?:#|${web}issues/|${escape(project.project)}#)(\\d+)`;
+  // An issue URL on this GitLab, or "#12" with an optional project path in front. Groups 1 or 2 hold the path, 3 the number.
+  const issue = `(?:${escape(project.url)}/([\\w.-]+(?:/[\\w.-]+)+)/-/issues/|(?<![\\w/.&#-])([\\w.-]+(?:/[\\w.-]+)*)?#)(\\d+)\\b`;
   const mr = `(?:!|${web}merge_requests/|${escape(project.project)}!)(\\d+)`;
   const out = new Map<string, ForgeRef>();
   const add = (ref: ForgeRef) => {
-    const key = `${ref.kind}:${ref.number}`;
+    const key = `${ref.kind}:${ref.project ?? ''}#${ref.number}`;
     if (!out.has(key)) out.set(key, ref);
   };
+  const issueRef = (m: RegExpMatchArray, relation: ForgeRef['relation']): ForgeRef => {
+    const other = otherProject(m[1] ?? m[2], project.project);
+    return { number: Number(m[3]), relation, kind: 'issue', ...(other && { project: other }) };
+  };
   for (const m of clean.matchAll(new RegExp(`\\b(?:fix(?:es|ed|ing)?|close[sd]?|closing|resolve[sd]?|resolving|implement(?:s|ed|ing)?)\\s*:?\\s+${issue}`, 'gi'))) {
-    add({ number: Number(m[1]), relation: 'fixes', kind: 'issue' });
+    add(issueRef(m, 'fixes'));
   }
+  for (const m of clean.matchAll(new RegExp(issue, 'g'))) add(issueRef(m, 'mentions'));
   for (const m of clean.matchAll(new RegExp(`\\breverts?\\s+(?:merge request\\s+)?${mr}`, 'gi'))) {
     add({ number: Number(m[1]), relation: 'reverts', kind: 'pr' });
   }
@@ -96,6 +104,17 @@ export function gitlabLinkedRefs(
     if (n !== undefined) add({ number: n, relation: 'reverts', kind: 'pr' });
   }
   return [...out.values()];
+}
+
+/**
+ * The full path of the project an issue reference names, or undefined when it is `own`. GitLab
+ * reads a path without a slash ("tracker#12") as a project in the same group.
+ */
+function otherProject(path: string | undefined, own: string): string | undefined {
+  if (!path) return undefined;
+  const group = own.includes('/') ? own.slice(0, own.lastIndexOf('/')) : '';
+  const full = path.includes('/') || !group ? path : `${group}/${path}`;
+  return full.toLowerCase() === own.toLowerCase() ? undefined : full;
 }
 
 /**
@@ -136,7 +155,16 @@ type ApiNote = {
   position?: { new_path?: string | null; old_path?: string | null } | null;
 };
 type ApiMr = { iid: number; title: string; description?: string | null; web_url: string; state?: string };
-type ApiIssue = { iid: number; title: string; description?: string | null; web_url: string };
+type ApiIssue = {
+  iid: number;
+  title: string;
+  description?: string | null;
+  web_url: string;
+  state?: string;
+  labels?: string[];
+  author?: GitLabUser;
+  created_at?: string;
+};
 
 class GitLabApi implements Forge {
   readonly concurrency: number;
@@ -189,30 +217,64 @@ class GitLabApi implements Forge {
     return { number: mr.iid, title: mr.title, body: clip(stripTemplate(mr.description ?? ''), KEEP.bodyChars), url: mr.web_url, discussion };
   }
 
-  /** An issue, or a merge request with its comments. */
-  async issue(n: number, kind: 'issue' | 'pr' = 'issue'): Promise<{ issue: LinkedIssue; discussion: Review[] } | undefined> {
-    const found = await this.get<ApiIssue>(kind === 'pr' ? `/merge_requests/${n}` : `/issues/${n}`);
+  /**
+   * A merge request with its comments, or an issue as it sits on the board: state, labels, who
+   * opened it, its description and comments. `project` reads it from another project on this GitLab.
+   */
+  async issue(n: number, kind: 'issue' | 'pr' = 'issue', project?: string): Promise<{ issue: LinkedIssue; discussion: Review[] } | undefined> {
+    if (kind === 'pr') {
+      const found = await this.get<ApiMr>(`/merge_requests/${n}`, project);
+      if (!found) return undefined;
+      const notes = await this.get<ApiNote[]>(`/merge_requests/${n}/notes?per_page=100&sort=asc`, project);
+      const body = clip(stripTemplate(found.description ?? ''), KEEP.issueBodyChars);
+      return {
+        issue: { number: found.iid, title: found.title, url: found.web_url, kind, ...(project && { project }), ...(body && { body }) },
+        discussion: (notes ?? []).map((note) => toReview(note, found.web_url)).filter((r): r is Review => r !== undefined),
+      };
+    }
+    const found = await this.get<ApiIssue>(`/issues/${n}`, project);
     if (!found) return undefined;
-    const notes = kind === 'pr' ? await this.get<ApiNote[]>(`/merge_requests/${n}/notes?per_page=100&sort=asc`) : undefined;
-    const body = clip(stripTemplate(found.description ?? ''), KEEP.issueBodyChars);
+    const notes = (await this.get<ApiNote[]>(`/issues/${n}/notes?per_page=100&sort=asc`, project)) ?? [];
+    const body = clip(stripTemplate(found.description ?? ''), KEEP.boardIssueBodyChars);
+    const comments = notes
+      .map((note) => toReview(note, found.web_url))
+      .filter((r): r is Review => r !== undefined)
+      .slice(-KEEP.issueComments);
+    const author = found.author?.username;
     return {
-      issue: { number: found.iid, title: found.title, url: found.web_url, kind, ...(body && { body }) },
-      discussion: (notes ?? []).map((note) => toReview(note, found.web_url)).filter((r): r is Review => r !== undefined),
+      issue: {
+        number: found.iid,
+        title: found.title,
+        url: found.web_url,
+        kind,
+        ...(project && { project }),
+        ...(found.state && { state: found.state }),
+        ...(found.labels && found.labels.length > 0 && { labels: found.labels }),
+        ...(author && { author }),
+        ...(found.created_at && { date: found.created_at }),
+        ...(body && { body }),
+        comments,
+      },
+      discussion: [],
     };
   }
 
-  /** GET a path under the project. Resolves undefined for 404 (unknown commit or MR, or no access). */
-  private async get<T>(route: string): Promise<T | undefined> {
+  /**
+   * GET a path under the project, or under another project on the same GitLab. Resolves undefined
+   * for 404 (unknown commit, MR or issue, or no access).
+   */
+  private async get<T>(route: string, project = this.project.project): Promise<T | undefined> {
     if (this.fatal) throw this.fatal;
     // Kept apart by whether a token was sent, as for GitHub: a private project is a 404 without one.
-    const cacheKey = `gitlab:${this.options.token ? 'token' : 'anon'}:${this.project.url}/${this.project.project}${route}`;
+    const cacheKey = `gitlab:${this.options.token ? 'token' : 'anon'}:${this.project.url}/${project}${route}`;
     const cached = await this.options.cache?.get(cacheKey);
     if (cached) return (cached.data ?? undefined) as T | undefined;
+    const base = project === this.project.project ? this.base : `${this.project.url}/api/v4/projects/${encodeURIComponent(project)}`;
 
     for (let attempt = 0; ; attempt++) {
       let response: Response;
       try {
-        response = await this.doFetch(`${this.base}${route}`, {
+        response = await this.doFetch(`${base}${route}`, {
           headers: { accept: 'application/json', ...(this.options.token && { 'private-token': this.options.token }) },
           signal: this.options.signal,
         });

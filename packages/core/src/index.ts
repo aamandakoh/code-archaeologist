@@ -1,4 +1,4 @@
-export type { Timeline, Step, Commit, NoiseCommit, NoiseReason, Story, Citation, Review, LinkedIssue, GitHubContext, JiraTicket, JiraContext } from './types.js';
+export type { Timeline, Step, Commit, NoiseCommit, NoiseReason, Story, FlagKind, Citation, Review, LinkedIssue, GitHubContext, JiraTicket, JiraContext } from './types.js';
 export { trace, buildTimeline, locateFile, parseGitHubRemote, type TraceOptions, type FileLocation } from './trace.js';
 export { parseLineLog, postImage, preImage, LOG_FORMAT, type RawCommit, type Hunk } from './lineLog.js';
 export { classifyNoise } from './noise.js';
@@ -19,6 +19,8 @@ export {
   DEFAULT_BASE_URL,
   STORY_VERSION,
   LIMITS,
+  FLAG_WEIGHTS,
+  scoreFlags,
   type ModelClient,
   type StoryPrompt,
   type GeminiOptions,

@@ -34,7 +34,7 @@ Options:
                      JIRA_TOKEN is sent only there; Jira Cloud also needs JIRA_EMAIL.
                      JIRA_PROJECTS="PAY,CORE" limits which keys count, and
                      JIRA_IGNORE_AUTHORS="gitlab-bot, Jenkins" drops those commenters
-  --story            Ask an LLM for per-commit notes, a summary and a risk verdict
+  --story            Ask an LLM for per-commit notes, a summary, warning flags and a score
                      (Gemini by default, with GEMINI_API_KEY)
   --provider <name>  gemini (default) or openai, for any OpenAI-compatible API
                      (key in OPENAI_API_KEY, optional for local servers)
